@@ -62,20 +62,29 @@ https://<your-app>.vercel.app/api/check-signals
 
 ## 5. Cron tự động
 
-File `vercel.json` đã cấu hình cron chạy mỗi 5 phút:
+File `vercel.json` cấu hình cron Vercel chạy **1 lần/ngày** (giới hạn Hobby plan):
 ```json
-{ "crons": [{ "path": "/api/check-signals", "schedule": "*/5 * * * *" }] }
+{ "crons": [{ "path": "/api/check-signals", "schedule": "0 0 * * *" }] }
 ```
+Đây chỉ là backup. Để quét tín hiệu **mỗi 5 phút (24/7)**, dùng cron ngoài miễn phí ở mục dưới.
 
-### ⚠️ Lưu ý về Vercel Hobby (free)
-- **Hobby plan giới hạn cron chạy 1 lần/ngày** — cron `*/5` sẽ KHÔNG chạy mỗi 5 phút.
-- Để chạy mỗi 5 phút (24/7), có 2 lựa chọn:
-  1. **Nâng Vercel Pro** (~$20/tháng) — cron chạy đúng `*/5`
-  2. **Dùng cron ngoài miễn phí** gọi vào endpoint:
-     - [cron-job.org](https://cron-job.org) (free, mỗi phút)
-     - Đặt URL: `https://<app>.vercel.app/api/check-signals`
-     - Thêm header `Authorization: Bearer <CRON_SECRET>` (nếu bật bảo vệ)
-     - Interval: 5 phút
+### ⚠️ Vercel Hobby (free) chỉ cho cron 1 lần/ngày
+Nếu để `*/5 * * * *`, deploy sẽ **báo lỗi**:
+> "Hobby accounts are limited to daily cron jobs..."
+
+→ Đã đổi về `0 0 * * *` để deploy được.
+
+### ✅ Giải pháp chạy mỗi 5 phút (MIỄN PHÍ) — dùng cron-job.org
+1. Đăng ký tài khoản tại [cron-job.org](https://cron-job.org) (free)
+2. Tạo cronjob mới:
+   - **URL:** `https://<your-app>.vercel.app/api/check-signals`
+   - **Schedule:** Every 5 minutes
+   - **Request method:** GET
+   - Nếu bật `CRON_SECRET`: thêm Header `Authorization` = `Bearer <CRON_SECRET>`
+3. Save → cron-job.org sẽ gọi endpoint mỗi 5 phút, bot gửi tín hiệu tự động 24/7.
+
+### Lựa chọn khác
+- **Nâng Vercel Pro** (~$20/tháng): để `*/5 * * * *` trong `vercel.json` chạy trực tiếp.
 
 ## 6. Cải thiện khi chạy 24/7 (sau khi test ổn)
 
