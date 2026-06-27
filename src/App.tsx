@@ -163,8 +163,26 @@ export default function App() {
         layout: { background: { type: ColorType.Solid, color: '#0a1628' }, textColor: '#d1d4dc' },
         grid: { vertLines: { color: '#1e2d4a' }, horzLines: { color: '#1e2d4a' } },
         crosshair: { mode: 0 },
-        rightPriceScale: { borderColor: '#2a3f5f' },
-        timeScale: { borderColor: '#2a3f5f', timeVisible: true, secondsVisible: false },
+        rightPriceScale: { borderColor: '#2a3f5f', scaleMargins: { top: 0.1, bottom: 0.1 } },
+        timeScale: {
+          borderColor: '#2a3f5f',
+          timeVisible: true,
+          secondsVisible: false,
+          barSpacing: 10,
+          minBarSpacing: 2,
+          rightOffset: 8,
+        },
+        handleScale: {
+          axisPressedMouseMove: true,
+          mouseWheel: true,
+          pinch: true,
+        },
+        handleScroll: {
+          mouseWheel: true,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: true,
+        },
       });
       chartRef.current = chart;
 
@@ -287,6 +305,15 @@ export default function App() {
       if (markers.length > 0) {
         markers.sort((a, b) => (a.time as number) - (b.time as number));
         candleSeries.setMarkers(markers);
+      }
+
+      // Hiển thị ~80 nến gần nhất (zoom vừa đủ để thấy rõ nến)
+      // thay vì fit toàn bộ 500 nến khiến nến bị bóp nhỏ
+      if (haData.length > 0) {
+        const visibleBars = 80;
+        const total = haData.length;
+        const from = Math.max(0, total - visibleBars);
+        chart.timeScale().setVisibleLogicalRange({ from, to: total + 6 });
       }
 
       // === KSI CHART ===
