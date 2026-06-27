@@ -149,12 +149,92 @@ body {
 .bear { color: #ef4444; }
 
 /* ===== RESPONSIVE ===== */
+
+/* Tablet & small desktop */
 @media (max-width: 1000px) {
-  .main-content { flex-direction: column; }
-  .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; border-left: none; border-top: 1px solid #1e2d4a; max-height: 200px; }
-  .panel { flex: 1; min-width: 220px; }
-  .toolbar { flex-direction: column; gap: 6px; padding: 6px 10px; }
-  .toolbar-left, .toolbar-right { width: 100%; justify-content: center; flex-wrap: wrap; }
+  .main-content { flex-direction: column; overflow-y: auto; }
+  .sidebar {
+    width: 100%; border-left: none; border-top: 1px solid #1e2d4a;
+    max-height: none; overflow-y: visible;
+  }
+  .toolbar { flex-wrap: wrap; gap: 6px; padding: 6px 10px; }
+  .toolbar-left, .toolbar-right { width: 100%; justify-content: center; flex-wrap: wrap; gap: 6px; }
+}
+
+/* Mobile (iPhone) */
+@media (max-width: 500px) {
+  html, body, #root { overflow: auto; height: auto; }
+  .app { height: auto; min-height: 100vh; }
+
+  .toolbar {
+    flex-direction: column; gap: 6px; padding: 8px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .toolbar-left { gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .toolbar-right { gap: 3px; flex-wrap: wrap; justify-content: center; }
+
+  .brand-name { font-size: 14px; letter-spacing: 1px; }
+  .live-price { font-size: 12px; padding: 2px 6px; }
+
+  .select-ctrl { font-size: 12px; padding: 5px 8px; max-width: 150px; }
+
+  .tf-group { gap: 2px; }
+  .tf-btn { padding: 4px 7px; font-size: 11px; }
+  .toggle { padding: 3px 6px; font-size: 10px; }
+
+  .main-content {
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .chart-area { min-height: 0; }
+  .chart-main { height: 300px; flex: none; min-height: 300px; }
+  .chart-ksi { height: 100px; }
+  .ksi-header { padding: 2px 8px; font-size: 10px; }
+
+  .sidebar {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid #1e2d4a;
+    padding: 8px;
+    gap: 8px;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .panel { padding: 8px; }
+  .panel h3 { font-size: 12px; margin-bottom: 6px; }
+
+  .status-row { padding: 2px 0; }
+  .sr-label, .sr-value { font-size: 11px; }
+
+  .signal-row { padding: 6px 8px; font-size: 10px; }
+  .sig-type { font-size: 10px; }
+  .sig-conf { font-size: 9px; }
+  .sig-time { font-size: 9px; }
+
+  .rules li { font-size: 10px; padding: 2px 0; }
+
+  /* Popup mobile fullscreen */
+  .popup-content {
+    min-width: unset;
+    max-width: unset;
+    width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-radius: 10px;
+  }
+  .popup-header { padding: 12px 14px; }
+  .popup-title { font-size: 13px; }
+  .popup-time { padding: 8px 14px; font-size: 11px; }
+  .conf-wrap { padding: 10px 14px; }
+  .trade-plan { padding: 10px 14px; }
+  .tp-row { font-size: 12px; padding: 4px 8px; }
+  .confluence-list { padding: 10px 14px; }
+  .cf-row { font-size: 10px; gap: 5px; }
+  .cf-name { min-width: 44px; font-size: 10px; }
+  .cf-detail { font-size: 9px; }
 }
 
 
