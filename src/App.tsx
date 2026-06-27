@@ -45,6 +45,9 @@ export default function App() {
   const ksiChartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // Hệ số zoom trục giá (Ctrl + lăn chuột). 1 = vừa khít nến.
+  // >1 = thu nhỏ nến (thấy KTR xa hơn), <1 = phóng to nến.
+  const priceZoomRef = useRef(1);
 
   // Refs phục vụ phát hiện tín hiệu mới khi nến đóng (Telegram)
   const candlesRef = useRef<import('./types').Candle[]>([]);
@@ -191,6 +194,20 @@ export default function App() {
         upColor: '#ffd700', downColor: '#ff4444',
         borderUpColor: '#ffd700', borderDownColor: '#ff4444',
         wickUpColor: '#ffd700', wickDownColor: '#ff4444',
+        // Trục giá fit theo nến, có thể nới rộng bằng Ctrl + lăn chuột
+        autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } | null } | null) => {
+          const res = original();
+          if (!res || !res.priceRange) return res;
+          const zoom = priceZoomRef.current;
+          if (zoom === 1) return res;
+          const { minValue, maxValue } = res.priceRange;
+          const mid = (minValue + maxValue) / 2;
+          const half = ((maxValue - minValue) / 2) * zoom;
+          return {
+            ...res,
+            priceRange: { minValue: mid - half, maxValue: mid + half },
+          };
+        },
       });
       const haData: CandlestickData[] = crazii.haCandles.map((c) => ({
         time: toGMT7(c.time), open: c.open, high: c.high, low: c.low, close: c.close,
@@ -231,7 +248,10 @@ export default function App() {
             { key: 'minus3', color: '#b91c1c', label: 'KTR-3' },
           ];
           ktrConfig.forEach(({ key, color, label }) => {
-            chart.addLineSeries({ color, lineWidth: 1, lineStyle: 1, title: label })
+            chart.addLineSeries({
+              color, lineWidth: 1, lineStyle: 1, title: label,
+              autoscaleInfoProvider: () => null, // không kéo giãn trục giá
+            })
               .setData(ktrData.map((k) => ({ time: toGMT7(k.time), value: k.levels![key] })));
           });
         }
@@ -244,7 +264,10 @@ export default function App() {
           { val: pivot.r1, col: '#00ff88', t: 'R1' },
           { val: pivot.s1, col: '#ff6666', t: 'S1' },
         ].forEach(({ val, col, t }) => {
-          chart.addLineSeries({ color: col, lineWidth: 1, lineStyle: 2, title: t })
+          chart.addLineSeries({
+            color: col, lineWidth: 1, lineStyle: 2, title: t,
+            autoscaleInfoProvider: () => null, // không kéo giãn trục giá
+          })
             .setData(candles.slice(-100).map((c) => ({ time: toGMT7(c.time), value: val })));
         });
       }
@@ -412,8 +435,28 @@ export default function App() {
       };
       window.addEventListener('resize', handleResize);
 
-      // Store cleanup for resize
-      return () => window.removeEventListener('resize', handleResize);
+      // Ctrl + lăn chuột = zoom trục GIÁ (chiều dọc) ngay tại chỗ.
+      // Lăn chuột thường vẫn zoom thời gian (chiều ngang) như mặc định.
+      const chartEl = chartContainerRef.current;
+      const handleWheel = (e: WheelEvent) => {
+        if (!e.ctrlKey) return; // chỉ xử lý khi giữ Ctrl
+        e.preventDefault();
+        // Lăn lên (deltaY < 0) -> phóng to nến (zoom nhỏ lại)
+        // Lăn xuống (deltaY > 0) -> thu nhỏ nến (thấy KTR xa hơn)
+        const factor = e.deltaY > 0 ? 1.1 : 0.9;
+        const next = priceZoomRef.current * factor;
+        // Giới hạn: 0.3 (phóng rất to) đến 8 (thu nhỏ thấy toàn bộ KTR)
+        priceZoomRef.current = Math.min(8, Math.max(0.3, next));
+        // Ép chart tính lại autoscale
+        candleSeriesRef.current?.applyOptions({});
+      };
+      chartEl.addEventListener('wheel', handleWheel, { passive: false });
+
+      // Store cleanup for resize + wheel
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        chartEl.removeEventListener('wheel', handleWheel);
+      };
     }
 
     loadChart();
