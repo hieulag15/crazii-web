@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 import type { IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData, SeriesMarker, Time } from 'lightweight-charts';
-import { calculateAll, calculatePivot, getGTHStatus, calculateEMA200, calculateADR, collectTradeSignals } from './utils/craziiEngine';
+import { calculateAll, calculatePivot, getGTHStatus, calculateEMA200, calculateADR } from './utils/craziiEngine';
 import { fetchCandles, fetchDailyCandles, connectWebSocket, SYMBOLS, TIMEFRAMES } from './utils/dataService';
 import type { LiveCandle } from './utils/dataService';
-import { notifyNewSignals, seedSentSignals } from './utils/telegramNotifier';
+import { notifyEnhancedSignals, seedEnhancedSent } from './utils/telegramNotifier';
 import type { CraziiSettings, SystemStatus, SignalDisplay } from './types';
 import './App.css';
 
@@ -30,6 +30,9 @@ export default function App() {
     ktrMultiplier: 1.0,
     haSmooth: 6,
     showEMA200: true,
+    showFVG: false,
+    showOB: false,
+    minConfidence: 55,
   });
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [signals, setSignals] = useState<SignalDisplay[]>([]);
@@ -108,7 +111,7 @@ export default function App() {
       dailyRef.current = dailyCandles;
 
       // Seed tất cả tín hiệu lịch sử là "đã gửi" để không spam khi mở app
-      seedSentSignals(symbol, timeframe, collectTradeSignals(crazii));
+      seedEnhancedSent(symbol, timeframe, crazii.enhancedSignals);
 
       // Update status
       const last = candles[candles.length - 1];
@@ -136,24 +139,26 @@ export default function App() {
       });
       setLivePrice(last.close);
 
-      // Signals
-      const allSignals: SignalDisplay[] = [];
-      crazii.tamDiem.slice(-5).forEach((s) => {
-        allSignals.push({ time: s.time, type: s.type === 'buy' ? '▲ BIG BUY (Hội Tụ)' : '▼ BIG SELL (Hội Tụ)', color: s.type === 'buy' ? '#00ff88' : '#ff4444', reason: s.reason });
+      // Signals nâng cao (A+B+C+D): confidence, TP/SL, R:R, hợp lưu FVG/OB
+      const allSignals: SignalDisplay[] = crazii.enhancedSignals.map((e) => {
+        const arrow = e.side === 'buy' ? '▲' : '▼';
+        const fullReason =
+          `${e.label}\n` +
+          `💰 Entry: ${e.entry.toFixed(2)}\n` +
+          `🛑 SL: ${e.sl.toFixed(2)}\n` +
+          `🎯 TP1: ${e.tp1.toFixed(2)} | TP2: ${e.tp2.toFixed(2)} | TP3: ${e.tp3.toFixed(2)}\n` +
+          `📊 Confidence: ${e.confidence}% | R:R = 1:${e.rr.toFixed(1)}\n` +
+          `━━━━━━━━━━━━\n` +
+          e.confluences.map((c) => `${c.passed ? '✅' : '❌'} ${c.name}: ${c.detail}`).join('\n');
+        return {
+          time: e.time,
+          type: `${arrow} ${e.label} · ${e.confidence}%`,
+          color: e.side === 'buy' ? '#00ff88' : '#ff4444',
+          reason: fullReason,
+          enhanced: e,
+        };
       });
-      crazii.diamondBreak.slice(-5).forEach((s) => {
-        allSignals.push({ time: s.time, type: s.type === 'buy' ? '◆ Kim Cương Phá BUY' : '◆ Kim Cương Phá SELL', color: s.type === 'buy' ? '#00e5ff' : '#ff6b00', reason: s.reason });
-      });
-      crazii.engulfing.slice(-5).forEach((s) => {
-        allSignals.push({ time: s.time, type: s.type === 'buy' ? 'Đổi màu BUY (CCRY)' : 'Đổi màu SELL (CCYR)', color: s.type === 'buy' ? '#22c55e' : '#ef4444', reason: s.reason });
-      });
-      crazii.diamonds.slice(-3).forEach((d) => {
-        const diamondReason = d.type === 'blue'
-          ? 'Kim Cương Xanh:\n• Thường xuất hiện gần đáy\n• Tổ chức xác nhận lực mua tối đa\n→ Chờ giá phá Diamond Line + nến vàng để BUY'
-          : 'Kim Cương Vỡ (Cam):\n• Volume lớn đột biến\n• Giá sẽ biến động mạnh\n→ 4 kim cương cam = tăng vị thế (scale in)';
-        allSignals.push({ time: d.time, type: d.type === 'blue' ? '💎 Kim Cương Xanh' : '◇ Kim Cương Vỡ', color: d.type === 'blue' ? '#00ffff' : '#ff8800', reason: diamondReason });
-      });
-      setSignals(allSignals.sort((a, b) => b.time - a.time).slice(0, 10));
+      setSignals(allSignals.sort((a, b) => b.time - a.time).slice(0, 12));
 
       // Double check not disposed after state updates
       if (disposed || !chartContainerRef.current) return;
@@ -285,8 +290,39 @@ export default function App() {
         }).setData(ema200Data.map((e) => ({ time: toGMT7(e.time), value: e.value })));
       }
 
+      // FVG - Fair Value Gap (chỉ vẽ gap chưa lấp, gần đây)
+      if (settings.showFVG) {
+        const recentFvgs = crazii.fvgs.filter((f) => !f.filled).slice(-12);
+        recentFvgs.forEach((f) => {
+          const col = f.type === 'bullish' ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)';
+          [f.top, f.bottom].forEach((val) => {
+            chart.addLineSeries({
+              color: col, lineWidth: 1, lineStyle: 3,
+              lastValueVisible: false, priceLineVisible: false,
+              autoscaleInfoProvider: () => null,
+            }).setData(candles.slice(-100).map((c) => ({ time: toGMT7(c.time), value: val })));
+          });
+        });
+      }
+
+      // Order Block (chỉ vẽ OB chưa mitigated, gần đây)
+      if (settings.showOB) {
+        const recentObs = crazii.orderBlocks.filter((o) => !o.mitigated).slice(-8);
+        recentObs.forEach((o) => {
+          const col = o.type === 'bullish' ? 'rgba(0,229,255,0.5)' : 'rgba(255,107,0,0.5)';
+          [o.top, o.bottom].forEach((val) => {
+            chart.addLineSeries({
+              color: col, lineWidth: 1, lineStyle: 0,
+              lastValueVisible: false, priceLineVisible: false,
+              autoscaleInfoProvider: () => null,
+            }).setData(candles.slice(-100).map((c) => ({ time: toGMT7(c.time), value: val })));
+          });
+        });
+      }
+
       // Markers
       const markers: SeriesMarker<Time>[] = [];
+      // Kim cương (điểm tham khảo, không phải lệnh)
       if (settings.showDiamond) {
         crazii.diamonds.forEach((d) => {
           markers.push({
@@ -298,31 +334,14 @@ export default function App() {
           });
         });
       }
-      crazii.tamDiem.forEach((s) => {
+      // Tín hiệu giao dịch ĐÃ LỌC (enhanced) - kèm % confidence
+      crazii.enhancedSignals.forEach((e) => {
         markers.push({
-          time: toGMT7(s.time),
-          position: s.type === 'buy' ? 'belowBar' : 'aboveBar',
-          color: s.type === 'buy' ? '#00ff88' : '#ff4444',
-          shape: s.type === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: s.type === 'buy' ? '▲BUY' : '▼SELL',
-        });
-      });
-      crazii.engulfing.forEach((s) => {
-        markers.push({
-          time: toGMT7(s.time),
-          position: s.type === 'buy' ? 'belowBar' : 'aboveBar',
-          color: s.type === 'buy' ? '#00ff00' : '#ff0000',
-          shape: s.type === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: s.type === 'buy' ? 'BUY' : 'SELL',
-        });
-      });
-      crazii.diamondBreak.forEach((s) => {
-        markers.push({
-          time: toGMT7(s.time),
-          position: s.type === 'buy' ? 'belowBar' : 'aboveBar',
-          color: s.type === 'buy' ? '#00e5ff' : '#ff6b00',
-          shape: s.type === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: s.type === 'buy' ? '◆DML' : '◆DML',
+          time: toGMT7(e.time),
+          position: e.side === 'buy' ? 'belowBar' : 'aboveBar',
+          color: e.side === 'buy' ? '#00ff88' : '#ff4444',
+          shape: e.side === 'buy' ? 'arrowUp' : 'arrowDown',
+          text: `${e.side === 'buy' ? 'BUY' : 'SELL'} ${e.confidence}%`,
         });
       });
       if (markers.length > 0) {
@@ -408,8 +427,7 @@ export default function App() {
             const craziiNow = calculateAll(candlesRef.current, {
               ...settings, dailyRange: adrNow, pivot: pivotNow,
             });
-            const allTrade = collectTradeSignals(craziiNow);
-            notifyNewSignals(symbol, timeframe, allTrade).then((n) => {
+            notifyEnhancedSignals(symbol, timeframe, craziiNow.enhancedSignals).then((n) => {
               if (n > 0) setTgCount((c) => c + n);
             });
           }
@@ -490,6 +508,8 @@ export default function App() {
           <Toggle label="Pivot" active={settings.showPivot} color="#ff00ff" onClick={() => setSettings((s) => ({ ...s, showPivot: !s.showPivot }))} />
           <Toggle label="💎" active={settings.showDiamond} color="#00ffff" onClick={() => setSettings((s) => ({ ...s, showDiamond: !s.showDiamond }))} />
           <Toggle label="EMA200" active={settings.showEMA200} color="#f59e0b" onClick={() => setSettings((s) => ({ ...s, showEMA200: !s.showEMA200 }))} />
+          <Toggle label="FVG" active={!!settings.showFVG} color="#22c55e" onClick={() => setSettings((s) => ({ ...s, showFVG: !s.showFVG }))} />
+          <Toggle label="OB" active={!!settings.showOB} color="#00e5ff" onClick={() => setSettings((s) => ({ ...s, showOB: !s.showOB }))} />
           <Toggle label={`📱 TG${tgCount > 0 ? ` (${tgCount})` : ''}`} active={tgEnabled} color="#229ed9" onClick={() => setTgEnabled((v) => !v)} />
         </div>
       </header>
@@ -530,11 +550,28 @@ export default function App() {
 
           {signals.length > 0 && (
             <div className="panel">
-              <h3>🔔 Tín Hiệu</h3>
+              <h3>🔔 Tín Hiệu (đã lọc)</h3>
+              <div className="conf-filter">
+                <span>Lọc confidence ≥ {settings.minConfidence ?? 55}%</span>
+                <input
+                  type="range" min={0} max={90} step={5}
+                  value={settings.minConfidence ?? 55}
+                  onChange={(ev) => setSettings((s) => ({ ...s, minConfidence: Number(ev.target.value) }))}
+                />
+              </div>
               {signals.map((s, i) => (
                 <div key={i} className="signal-row clickable" style={{ borderLeftColor: s.color }}
                   onClick={() => setPopupSignal(s)}>
-                  <span className="sig-type">{s.type}</span>
+                  <div className="sig-main">
+                    <span className="sig-type">{s.type}</span>
+                    {s.enhanced && (
+                      <span className="sig-conf" style={{
+                        color: s.enhanced.confidence >= 70 ? '#22c55e' : s.enhanced.confidence >= 60 ? '#f59e0b' : '#ef4444',
+                      }}>
+                        {s.enhanced.confidence}% · 1:{s.enhanced.rr.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
                   <span className="sig-time">{formatTimeGMT7(s.time)}</span>
                 </div>
               ))}
@@ -610,24 +647,70 @@ function SignalPopup({ signal, onClose }: { signal: SignalDisplay; onClose: () =
     year: 'numeric',
   });
 
+  const e = signal.enhanced;
+
   return (
     <div className="popup-overlay" onClick={onClose}>
-      <div className="popup-content" onClick={(e) => e.stopPropagation()}>
+      <div className="popup-content" onClick={(ev) => ev.stopPropagation()}>
         <div className="popup-header" style={{ borderLeftColor: signal.color }}>
           <span className="popup-title">{signal.type}</span>
           <button className="popup-close" onClick={onClose}>✕</button>
         </div>
         <div className="popup-time">🕐 {timeStr} (GMT+7)</div>
-        <div className="popup-reason">
-          {signal.reason
-            ? signal.reason.split('\n').map((line, i) => (
-                <p key={i} className={line.startsWith('→') ? 'reason-conclusion' : ''}>
-                  {line}
-                </p>
-              ))
-            : <p>Không có thông tin chi tiết cho tín hiệu này.</p>
-          }
-        </div>
+
+        {e && (
+          <>
+            {/* Confidence bar */}
+            <div className="conf-wrap">
+              <div className="conf-label">
+                <span>Confidence</span>
+                <strong style={{ color: e.confidence >= 70 ? '#22c55e' : e.confidence >= 60 ? '#f59e0b' : '#ef4444' }}>
+                  {e.confidence}%
+                </strong>
+              </div>
+              <div className="conf-bar">
+                <div className="conf-fill" style={{
+                  width: `${e.confidence}%`,
+                  background: e.confidence >= 70 ? '#22c55e' : e.confidence >= 60 ? '#f59e0b' : '#ef4444',
+                }} />
+              </div>
+              <div className="conf-rr">R:R = <strong>1:{e.rr.toFixed(1)}</strong></div>
+            </div>
+
+            {/* Trade plan */}
+            <div className="trade-plan">
+              <div className="tp-row entry"><span>Entry</span><b>{e.entry.toFixed(2)}</b></div>
+              <div className="tp-row sl"><span>🛑 Stop Loss</span><b>{e.sl.toFixed(2)}</b></div>
+              <div className="tp-row tp"><span>🎯 TP1</span><b>{e.tp1.toFixed(2)}</b></div>
+              <div className="tp-row tp"><span>🎯 TP2</span><b>{e.tp2.toFixed(2)}</b></div>
+              <div className="tp-row tp"><span>🎯 TP3</span><b>{e.tp3.toFixed(2)}</b></div>
+            </div>
+
+            {/* Confluence checklist */}
+            <div className="confluence-list">
+              <div className="cf-title">Hợp lưu ({e.confluences.filter((c) => c.passed).length}/{e.confluences.length})</div>
+              {e.confluences.map((c, i) => (
+                <div key={i} className={`cf-row ${c.passed ? 'pass' : 'fail'}`}>
+                  <span className="cf-icon">{c.passed ? '✅' : '❌'}</span>
+                  <span className="cf-name">{c.name}</span>
+                  <span className="cf-detail">{c.detail}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {!e && (
+          <div className="popup-reason">
+            {signal.reason
+              ? signal.reason.split('\n').map((line, i) => (
+                  <p key={i} className={line.startsWith('→') ? 'reason-conclusion' : ''}>{line}</p>
+                ))
+              : <p>Không có thông tin chi tiết cho tín hiệu này.</p>}
+          </div>
+        )}
+
+        <div className="popup-disclaimer">⚠️ Tín hiệu tự động - không phải lời khuyên đầu tư</div>
       </div>
     </div>
   );

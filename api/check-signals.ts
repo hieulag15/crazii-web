@@ -12,10 +12,10 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { detectAllSignals } from './lib/detector';
-import { formatSignalMessage } from './lib/formatter';
+import { formatEnhancedMessage } from './lib/formatter';
 import { sendTelegramMessage } from './lib/telegram';
 
-// Cache chống gửi trùng trong cùng instance (warm). Key = symbol|time|type
+// Cache chống gửi trùng trong cùng instance (warm). Key = symbol|time|side|label
 const sentCache = new Set<string>();
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -33,9 +33,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .map((s) => s.trim())
     .filter(Boolean);
   const timeframe = process.env.CRAZII_TIMEFRAME || '5m';
+  const minConfidence = Number(process.env.CRAZII_MIN_CONFIDENCE || '60');
 
   try {
-    const detected = await detectAllSignals(symbols, timeframe);
+    const detected = await detectAllSignals(symbols, timeframe, minConfidence);
 
     if (detected.length === 0) {
       return res.status(200).json({ ok: true, sent: 0, message: 'No new signals' });
@@ -45,18 +46,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const errors: string[] = [];
 
     for (const d of detected) {
-      const dedupKey = `${d.symbol}|${d.signal.time}|${d.signal.type}|${d.signalName}`;
+      const e = d.enhanced;
+      const dedupKey = `${d.symbol}|${e.time}|${e.side}|${e.label}`;
       if (sentCache.has(dedupKey)) continue;
 
-      const message = formatSignalMessage(d.signal, {
-        symbol: d.symbol,
-        timeframe: d.timeframe,
-        price: d.price,
-        op: d.op,
-        mlp: d.mlp,
-        ktr: d.ktr,
-        signalName: d.signalName,
-      });
+      const message = formatEnhancedMessage(e, d.symbol, d.timeframe);
 
       const result = await sendTelegramMessage(message);
       if (result.ok) {

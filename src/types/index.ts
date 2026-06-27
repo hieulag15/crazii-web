@@ -92,6 +92,49 @@ export interface TradeSignal {
   reason?: string;
 }
 
+// ===== Phân tích kỹ thuật ICT =====
+
+export interface FVG {
+  time: number;
+  type: 'bullish' | 'bearish';
+  top: number;    // cạnh trên của gap
+  bottom: number; // cạnh dưới của gap
+  filled: boolean;
+}
+
+export interface OrderBlock {
+  time: number;
+  type: 'bullish' | 'bearish';
+  top: number;
+  bottom: number;
+  mitigated: boolean; // đã bị giá quay lại "test" chưa
+}
+
+// ===== Tín hiệu nâng cao (A + B + C + D) =====
+
+export interface Confluence {
+  name: string;       // vd "OP", "MLP", "KSI", "KCX", "Pivot", "EMA200", "FVG", "OB"
+  passed: boolean;
+  weight: number;     // điểm đóng góp
+  detail: string;     // mô tả ngắn
+}
+
+export interface EnhancedSignal {
+  time: number;
+  side: 'buy' | 'sell';
+  source: string;        // loại tín hiệu gốc (Tam Điểm / DML / CCRY...)
+  label: string;         // tên hiển thị
+  entry: number;
+  sl: number;
+  tp1: number;
+  tp2: number;
+  tp3: number;
+  rr: number;            // tỷ lệ R:R tới TP1
+  confidence: number;    // 0-100
+  confluences: Confluence[];
+  reason: string;
+}
+
 export interface CraziiResult {
   ops: OPData[];
   mlps: MLPData[];
@@ -104,6 +147,9 @@ export interface CraziiResult {
   engulfing: TradeSignal[];
   tamDiem: TradeSignal[];
   diamondBreak: TradeSignal[];
+  fvgs: FVG[];
+  orderBlocks: OrderBlock[];
+  enhancedSignals: EnhancedSignal[];
 }
 
 export interface CraziiSettings {
@@ -117,6 +163,9 @@ export interface CraziiSettings {
   showDiamond: boolean;
   showCandles: boolean;
   showEMA200: boolean;
+  showFVG?: boolean;
+  showOB?: boolean;
+  minConfidence?: number; // ngưỡng % để hiện tín hiệu
 }
 
 export interface SystemStatus {
@@ -140,4 +189,5 @@ export interface SignalDisplay {
   type: string;
   color: string;
   reason?: string;
+  enhanced?: EnhancedSignal;
 }

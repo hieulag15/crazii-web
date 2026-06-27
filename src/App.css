@@ -248,3 +248,91 @@ body {
   padding-top: 8px;
   border-top: 1px solid #1e2d4a;
 }
+
+/* ===== ENHANCED SIGNAL POPUP ===== */
+.conf-wrap {
+  padding: 12px 18px;
+  border-bottom: 1px solid #1e2d4a;
+}
+.conf-label {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: #aaa; margin-bottom: 6px;
+}
+.conf-label strong { font-size: 16px; }
+.conf-bar {
+  width: 100%; height: 8px; background: #1a2744;
+  border-radius: 4px; overflow: hidden;
+}
+.conf-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.conf-rr { font-size: 12px; color: #aaa; margin-top: 6px; text-align: right; }
+.conf-rr strong { color: #ffd700; }
+
+.trade-plan {
+  padding: 12px 18px;
+  border-bottom: 1px solid #1e2d4a;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.tp-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; padding: 5px 10px; border-radius: 5px;
+}
+.tp-row span { color: #bbb; }
+.tp-row b { font-weight: 700; font-family: monospace; }
+.tp-row.entry { background: rgba(255,215,0,0.08); }
+.tp-row.entry b { color: #ffd700; }
+.tp-row.sl { background: rgba(239,68,68,0.1); }
+.tp-row.sl b { color: #ef4444; }
+.tp-row.tp { background: rgba(34,197,94,0.08); }
+.tp-row.tp b { color: #22c55e; }
+
+.confluence-list { padding: 12px 18px; }
+.cf-title { font-size: 12px; color: #ffd700; margin-bottom: 8px; font-weight: 600; }
+.cf-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; padding: 3px 0;
+}
+.cf-row.fail { opacity: 0.55; }
+.cf-icon { flex-shrink: 0; }
+.cf-name { font-weight: 600; min-width: 54px; color: #ddd; }
+.cf-detail { color: #999; font-size: 10px; }
+
+.popup-disclaimer {
+  padding: 10px 18px; font-size: 10px; color: #777;
+  font-style: italic; border-top: 1px solid #1e2d4a;
+}
+
+/* ===== Confidence filter slider ===== */
+.conf-filter {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px 0 10px; font-size: 11px; color: #888;
+}
+.conf-filter input[type="range"] { width: 100%; cursor: pointer; accent-color: #229ed9; }
+
+/* ===== Signal row enhanced ===== */
+.sig-main { display: flex; align-items: center; gap: 8px; }
+.sig-conf { font-size: 10px; font-weight: 700; }
+
+/* ===== Popup: Confidence bar ===== */
+.conf-wrap { padding: 12px 18px; border-bottom: 1px solid #1e2d4a; }
+.conf-label { display: flex; justify-content: space-between; font-size: 12px; color: #aaa; margin-bottom: 6px; }
+.conf-bar { height: 8px; background: #1a2744; border-radius: 4px; overflow: hidden; }
+.conf-fill { height: 100%; transition: width 0.3s; }
+.conf-rr { font-size: 12px; color: #ccc; margin-top: 6px; }
+
+/* ===== Popup: Trade plan ===== */
+.trade-plan { padding: 12px 18px; border-bottom: 1px solid #1e2d4a; display: flex; flex-direction: column; gap: 4px; }
+.tp-row { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
+.tp-row span { color: #888; }
+.tp-row b { color: #e0e0e0; }
+.tp-row.entry b { color: #ffd700; }
+.tp-row.sl b { color: #ef4444; }
+.tp-row.tp b { color: #22c55e; }
+
+/* ===== Popup: Confluence checklist ===== */
+.confluence-list { padding: 12px 18px; }
+.cf-title { font-size: 12px; color: #ffd700; margin-bottom: 8px; font-weight: 600; }
+.cf-row { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 0; }
+.cf-icon { flex-shrink: 0; }
+.cf-name { font-weight: 600; min-width: 52px; color: #ccc; }
+.cf-detail { color: #777; font-size: 10px; }
+.cf-row.fail .cf-name { color: #666; }

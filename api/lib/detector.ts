@@ -1,31 +1,27 @@
 /**
- * Signal Detector - tái sử dụng craziiEngine để bắt tín hiệu
- * ở nến vừa đóng gần nhất (last closed candle)
+ * Signal Detector - tái sử dụng craziiEngine để bắt tín hiệu nâng cao
+ * (enhanced: confidence, TP/SL, R:R, hợp lưu FVG/OB) ở nến vừa đóng.
  */
 
 import { calculateAll, calculatePivot, calculateADR } from '../../src/utils/craziiEngine';
 import { fetchCandlesServer } from '../../src/utils/serverData';
-import type { TradeSignal, KTRLevels } from '../../src/types';
+import type { EnhancedSignal } from '../../src/types';
 
 export interface DetectedSignal {
-  signal: TradeSignal;
-  signalName: string;
   symbol: string;
   timeframe: string;
-  price: number;
-  op: number | null;
-  mlp: number | null;
-  ktr: KTRLevels | null;
+  enhanced: EnhancedSignal;
 }
 
 /**
  * Quét tín hiệu cho 1 symbol/timeframe.
- * Chỉ trả về tín hiệu xảy ra ở NẾN ĐÓNG GẦN NHẤT (index = length-2,
- * vì nến cuối cùng length-1 thường chưa đóng).
+ * Chỉ trả về tín hiệu ở NẾN ĐÓNG GẦN NHẤT (index length-2,
+ * vì nến cuối cùng thường chưa đóng).
  */
 export async function detectSignalsForSymbol(
   symbol: string,
-  timeframe: string
+  timeframe: string,
+  minConfidence = 60
 ): Promise<DetectedSignal[]> {
   const [candles, dailyCandles] = await Promise.all([
     fetchCandlesServer(symbol, timeframe, 500),
@@ -36,42 +32,17 @@ export async function detectSignalsForSymbol(
 
   const pivot = calculatePivot(dailyCandles);
   const dailyRange = calculateADR(dailyCandles);
-  const crazii = calculateAll(candles, { dailyRange, pivot });
+  const crazii = calculateAll(candles, { dailyRange, pivot, minConfidence });
 
-  // Nến đóng gần nhất = nến áp chót (nến cuối thường đang chạy)
+  // Nến đóng gần nhất = nến áp chót
   const closedCandle = candles[candles.length - 2];
   if (!closedCandle) return [];
   const targetTime = closedCandle.time;
 
-  const lastOp = crazii.ops[crazii.ops.length - 2]?.op ?? null;
-  const lastMlp = crazii.mlps[crazii.mlps.length - 2]?.mlp ?? null;
-  const lastKtr = crazii.ktrs[crazii.ktrs.length - 2]?.levels ?? null;
-
-  const results: DetectedSignal[] = [];
-
-  const collect = (signals: TradeSignal[], name: string) => {
-    signals
-      .filter((s) => s.time === targetTime)
-      .forEach((signal) => {
-        results.push({
-          signal,
-          signalName: name,
-          symbol,
-          timeframe,
-          price: closedCandle.close,
-          op: lastOp,
-          mlp: lastMlp,
-          ktr: lastKtr,
-        });
-      });
-  };
-
-  // Ưu tiên tín hiệu mạnh trước
-  collect(crazii.tamDiem, 'BIG BUY/SELL (Tam Điểm Hội Tụ)');
-  collect(crazii.diamondBreak, 'Kim Cương Nhấn Chìm (DML)');
-  collect(crazii.engulfing, 'Đổi màu nến (CCRY/CCYR)');
-
-  return results;
+  // Chỉ lấy tín hiệu nâng cao ở đúng nến vừa đóng
+  return crazii.enhancedSignals
+    .filter((e) => e.time === targetTime)
+    .map((enhanced) => ({ symbol, timeframe, enhanced }));
 }
 
 /**
@@ -79,10 +50,11 @@ export async function detectSignalsForSymbol(
  */
 export async function detectAllSignals(
   symbols: string[],
-  timeframe: string
+  timeframe: string,
+  minConfidence = 60
 ): Promise<DetectedSignal[]> {
   const all = await Promise.all(
-    symbols.map((s) => detectSignalsForSymbol(s, timeframe).catch(() => []))
+    symbols.map((s) => detectSignalsForSymbol(s, timeframe, minConfidence).catch(() => []))
   );
   return all.flat();
 }

@@ -19,6 +19,8 @@ import type {
   DiamondSignal, DJDDSignal, TradeSignal, CraziiResult,
 } from '../types';
 import { ema, sma, atr } from './helpers';
+import { detectFVG, detectOrderBlocks } from './technicalAnalysis';
+import { enhanceSignals } from './signalEnhancer';
 
 // ============================================================
 // OP - GIÁ MỞ CỬA CỦA MỖI PHIÊN (QUAN TRỌNG NHẤT)
@@ -590,9 +592,9 @@ export function detectDiamondBreak(
 // ============================================================
 export function calculateAll(
   candles: Candle[],
-  options: { opHour?: number; ktrMultiplier?: number; haSmooth?: number; dailyRange?: number | null; pivot?: PivotData | null } = {}
+  options: { opHour?: number; ktrMultiplier?: number; haSmooth?: number; dailyRange?: number | null; pivot?: PivotData | null; minConfidence?: number } = {}
 ): CraziiResult {
-  const { opHour = 5, ktrMultiplier = 1.0, haSmooth = 6, dailyRange = null, pivot = null } = options;
+  const { opHour = 5, ktrMultiplier = 1.0, haSmooth = 6, dailyRange = null, pivot = null, minConfidence } = options;
 
   const ops = calculateOP(candles, opHour);
   const mlps = calculateMLP(ops);
@@ -606,7 +608,30 @@ export function calculateAll(
   const tamDiem = detectTamDiem(candles, haCandles, ops, ksi, kcx, pivot);
   const diamondBreak = detectDiamondBreak(candles, haCandles, ops, diamonds);
 
-  return { ops, mlps, ktrs, haCandles, ksi, kcx, diamonds, djdd, engulfing, tamDiem, diamondBreak };
+  // D) Phân tích kỹ thuật ICT
+  const fvgs = detectFVG(candles);
+  const orderBlocks = detectOrderBlocks(candles);
+
+  // EMA200 dạng mảng số để chấm điểm hợp lưu
+  const ema200Arr = ema(candles.map((c) => c.close), 200);
+
+  // Gom tín hiệu thô
+  const rawSignals: { signal: TradeSignal; label: string }[] = [];
+  tamDiem.forEach((s) => rawSignals.push({ signal: s, label: s.type === 'buy' ? 'BIG BUY (Hội Tụ)' : 'BIG SELL (Hội Tụ)' }));
+  diamondBreak.forEach((s) => rawSignals.push({ signal: s, label: s.type === 'buy' ? 'Kim Cương Phá BUY' : 'Kim Cương Phá SELL' }));
+  engulfing.forEach((s) => rawSignals.push({ signal: s, label: s.type === 'buy' ? 'Đổi màu BUY (CCRY)' : 'Đổi màu SELL (CCYR)' }));
+
+  // A+B+C+D: nâng cấp + chấm điểm + lọc nhiễu
+  const enhancedSignals = enhanceSignals(rawSignals, {
+    candles, ops, mlps, ktrs, ksi, kcx, pivot,
+    ema200: ema200Arr, fvgs, orderBlocks, djdd,
+  }, { minConfidence });
+
+  return {
+    ops, mlps, ktrs, haCandles, ksi, kcx, diamonds, djdd,
+    engulfing, tamDiem, diamondBreak,
+    fvgs, orderBlocks, enhancedSignals,
+  };
 }
 
 // ============================================================

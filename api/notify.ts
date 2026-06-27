@@ -20,6 +20,13 @@ interface NotifySignal {
   price: number;
   time: number;
   reason?: string;
+  entry?: number;
+  sl?: number;
+  tp1?: number;
+  tp2?: number;
+  tp3?: number;
+  rr?: number;
+  confidence?: number;
 }
 
 function timeGMT7(timestamp: number): string {
@@ -43,7 +50,22 @@ function buildMessage(s: NotifySignal): string {
   lines.push(`━━━━━━━━━━━━━━━`);
   lines.push(`📊 <b>${s.symbol}</b> · ${s.timeframe}`);
   lines.push(`🎯 Loại: <b>${s.type}</b>`);
-  lines.push(`💰 Giá: <b>${s.price.toFixed(2)}</b>`);
+
+  if (s.confidence !== undefined) {
+    lines.push(`📈 Confidence: <b>${s.confidence}%</b>${s.rr !== undefined ? ` · R:R 1:${s.rr.toFixed(1)}` : ''}`);
+  }
+
+  // Trade plan (nếu có enhanced data)
+  if (s.entry !== undefined && s.sl !== undefined) {
+    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(`💰 Entry: <b>${s.entry.toFixed(2)}</b>`);
+    lines.push(`🛑 SL: <b>${s.sl.toFixed(2)}</b>`);
+    if (s.tp1 !== undefined) lines.push(`🎯 TP1: ${s.tp1.toFixed(2)}`);
+    if (s.tp2 !== undefined) lines.push(`🎯 TP2: ${s.tp2.toFixed(2)}`);
+    if (s.tp3 !== undefined) lines.push(`🎯 TP3: ${s.tp3.toFixed(2)}`);
+  } else {
+    lines.push(`💰 Giá: <b>${s.price.toFixed(2)}</b>`);
+  }
 
   if (s.reason) {
     lines.push(`━━━━━━━━━━━━━━━`);
