@@ -79,6 +79,20 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
   const [tgEnabled, setTgEnabled] = useState(false);
   const [tgCount, setTgCount] = useState(0);
 
+  // Auto-save settings to DB khi thay đổi (debounced 2 giây)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // Skip lần render đầu tiên (chỉ save khi user thực sự thay đổi)
+    if (saveTimerRef.current !== undefined) {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        saveSettings({ symbol, timeframe, minConfidence: settings.minConfidence, showOP: settings.showOP, showMLP: settings.showMLP, showKTR: settings.showKTR, showPivot: settings.showPivot, showDiamond: settings.showDiamond, showEMA200: settings.showEMA200, showFVG: settings.showFVG, showOB: settings.showOB }).catch(() => {});
+      }, 2000);
+    } else {
+      saveTimerRef.current = null; // đánh dấu đã qua lần đầu
+    }
+  }, [symbol, timeframe, settings]);
+
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const ksiContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -96,6 +110,27 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
 
   // Đồng bộ ref với state để dùng trong WebSocket callback
   useEffect(() => { tgEnabledRef.current = tgEnabled; }, [tgEnabled]);
+
+  // Auto-save settings lên DB khi user thay đổi (debounced 1.5s)
+  useEffect(() => {
+    if (!user) return;
+    const timer = setTimeout(() => {
+      saveSettings({
+        symbol,
+        timeframe,
+        minConfidence: settings.minConfidence,
+        showOP: settings.showOP,
+        showMLP: settings.showMLP,
+        showKTR: settings.showKTR,
+        showPivot: settings.showPivot,
+        showDiamond: settings.showDiamond,
+        showEMA200: settings.showEMA200,
+        showFVG: settings.showFVG ?? false,
+        showOB: settings.showOB ?? false,
+      }).catch(() => {}); // silent fail
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [symbol, timeframe, settings, user, saveSettings]);
 
   useEffect(() => {
     let disposed = false;
@@ -141,7 +176,7 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
       // Calculate CRAZII
       const pivot = calculatePivot(dailyCandles);
       const dailyRange = calculateADR(dailyCandles);
-      const crazii = calculateAll(candles, { ...settings, dailyRange, pivot });
+      const crazii = calculateAll(candles, { ...settings, dailyRange, pivot, minConfidence: 0 });
 
       // Lưu data cho việc phát hiện tín hiệu mới khi nến đóng
       candlesRef.current = candles;
@@ -195,7 +230,7 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
           enhanced: e,
         };
       });
-      setSignals(allSignals.sort((a, b) => b.time - a.time).slice(0, 12));
+      setSignals(allSignals.sort((a, b) => b.time - a.time));
 
       // Double check not disposed after state updates
       if (disposed || !chartContainerRef.current) return;
@@ -585,35 +620,44 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
             </div>
           )}
 
-          {signals.length > 0 && (
-            <div className="panel">
-              <h3>🔔 Tín Hiệu (đã lọc)</h3>
-              <div className="conf-filter">
-                <span>Lọc confidence ≥ {settings.minConfidence ?? 55}%</span>
-                <input
-                  type="range" min={0} max={90} step={5}
-                  value={settings.minConfidence ?? 55}
-                  onChange={(ev) => setSettings((s) => ({ ...s, minConfidence: Number(ev.target.value) }))}
-                />
-              </div>
-              {signals.map((s, i) => (
-                <div key={i} className="signal-row clickable" style={{ borderLeftColor: s.color }}
-                  onClick={() => setPopupSignal(s)}>
-                  <div className="sig-main">
-                    <span className="sig-type">{s.type}</span>
-                    {s.enhanced && (
-                      <span className="sig-conf" style={{
-                        color: s.enhanced.confidence >= 70 ? '#22c55e' : s.enhanced.confidence >= 60 ? '#f59e0b' : '#ef4444',
-                      }}>
-                        {s.enhanced.confidence}% · 1:{s.enhanced.rr.toFixed(1)}
-                      </span>
-                    )}
-                  </div>
-                  <span className="sig-time">{formatTimeGMT7(s.time)}</span>
-                </div>
-              ))}
+          {/* Panel tín hiệu - LUÔN HIỆN để user điều chỉnh confidence */}
+          <div className="panel">
+            <h3>🔔 Tín Hiệu (đã lọc)</h3>
+            <div className="conf-filter">
+              <span>Lọc confidence ≥ {settings.minConfidence ?? 55}%</span>
+              <input
+                type="range" min={0} max={95} step={5}
+                value={settings.minConfidence ?? 55}
+                onChange={(ev) => setSettings((s) => ({ ...s, minConfidence: Number(ev.target.value) }))}
+              />
             </div>
-          )}
+            {(() => {
+              const filtered = signals.filter((s) => (s.enhanced?.confidence ?? 0) >= (settings.minConfidence ?? 55));
+              return filtered.length > 0 ? (
+                filtered.slice(0, 15).map((s, i) => (
+                  <div key={i} className="signal-row clickable" style={{ borderLeftColor: s.color }}
+                    onClick={() => setPopupSignal(s)}>
+                    <div className="sig-main">
+                      <span className="sig-type">{s.type}</span>
+                      {s.enhanced && (
+                        <span className="sig-conf" style={{
+                          color: s.enhanced.confidence >= 70 ? '#22c55e' : s.enhanced.confidence >= 60 ? '#f59e0b' : '#ef4444',
+                        }}>
+                          {s.enhanced.confidence}% · 1:{s.enhanced.rr.toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="sig-time">{formatTimeGMT7(s.time)}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="no-signals">
+                  Chưa có tín hiệu đạt ngưỡng {settings.minConfidence ?? 55}%.
+                  <br /><span style={{ fontSize: '10px', color: '#666' }}>Thử giảm confidence hoặc đợi tín hiệu mới. ({signals.length} tín hiệu tổng)</span>
+                </div>
+              );
+            })()}
+          </div>
 
           {/* Popup */}
           {popupSignal && (
