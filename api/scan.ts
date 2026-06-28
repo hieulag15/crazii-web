@@ -13,7 +13,7 @@
  * Query: ?symbol=XAUUSDT&tf=5m&secret=xxx
  */
 
-import { fetchCandlesServer, calculateAll, calculatePivot, calculateADR, collectTradeSignals } from './lib/engine.js';
+import { fetchCandlesServer, calculateAll, calculatePivot, calculateADR, collectTradeSignals } from './_lib/engine.js';
 
 export default async function handler(req: any, res: any) {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
