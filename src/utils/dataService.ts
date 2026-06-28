@@ -3,7 +3,7 @@
  * WebSocket cho live updates
  */
 
-import type { Candle } from '../types';
+import type { Candle } from '../types/index.js';
 
 // Sử dụng nhiều endpoint để tránh CORS
 const BINANCE_REST_ENDPOINTS = [

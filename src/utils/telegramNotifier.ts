@@ -7,7 +7,7 @@
  * tránh gửi trùng khi component re-render hoặc reload.
  */
 
-import type { TradeSignal, EnhancedSignal } from '../types';
+import type { TradeSignal, EnhancedSignal } from '../types/index.js';
 
 const STORAGE_KEY = 'crazii_sent_signals';
 const MAX_STORED = 200; // giới hạn số key lưu để không phình localStorage

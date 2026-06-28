@@ -9,8 +9,8 @@
 import type {
   Candle, OPData, MLPData, KTRData, KSIData, KCXData, PivotData,
   TradeSignal, FVG, OrderBlock, EnhancedSignal, Confluence, DJDDSignal,
-} from '../types';
-import { priceInFVG, priceInOB } from './technicalAnalysis';
+} from '../types/index.js';
+import { priceInFVG, priceInOB } from './technicalAnalysis.js';
 
 export interface EnhanceContext {
   candles: Candle[];

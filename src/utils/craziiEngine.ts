@@ -17,10 +17,10 @@ import type {
   Candle, OPData, MLPData, KTRData, HACandle,
   KSIData, KCXData, PivotData, GTHStatus,
   DiamondSignal, DJDDSignal, TradeSignal, CraziiResult,
-} from '../types';
-import { ema, sma, atr } from './helpers';
-import { detectFVG, detectOrderBlocks } from './technicalAnalysis';
-import { enhanceSignals } from './signalEnhancer';
+} from '../types/index.js';
+import { ema, sma, atr } from './helpers.js';
+import { detectFVG, detectOrderBlocks } from './technicalAnalysis.js';
+import { enhanceSignals } from './signalEnhancer.js';
 
 // ============================================================
 // OP - GIÁ MỞ CỬA CỦA MỖI PHIÊN (QUAN TRỌNG NHẤT)

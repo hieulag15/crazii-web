@@ -4,7 +4,7 @@
  * gọi thẳng Binance API.
  */
 
-import type { Candle } from '../types';
+import type { Candle } from '../types/index.js';
 
 const SPOT = 'https://api.binance.com/api/v3';
 const FUTURES = 'https://fapi.binance.com/fapi/v1';

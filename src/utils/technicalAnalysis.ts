@@ -3,7 +3,7 @@
  * Dùng làm tầng hợp lưu (confluence) cho tín hiệu CRAZII.
  */
 
-import type { Candle, FVG, OrderBlock } from '../types';
+import type { Candle, FVG, OrderBlock } from '../types/index.js';
 
 // ============================================================
 // FVG - FAIR VALUE GAP (Khoảng trống giá trị hợp lý)
