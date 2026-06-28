@@ -1,7 +1,9 @@
 {
+  "regions": ["sin1"],
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": "src/**"
+      "includeFiles": "src/**",
+      "maxDuration": 30
     }
   },
   "rewrites": [
