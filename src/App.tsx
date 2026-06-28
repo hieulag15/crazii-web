@@ -81,16 +81,18 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
 
   // Auto-save settings to DB khi thay đổi (debounced 2 giây)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstRender = useRef(true);
   useEffect(() => {
-    // Skip lần render đầu tiên (chỉ save khi user thực sự thay đổi)
-    if (saveTimerRef.current !== undefined) {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        saveSettings({ symbol, timeframe, minConfidence: settings.minConfidence, showOP: settings.showOP, showMLP: settings.showMLP, showKTR: settings.showKTR, showPivot: settings.showPivot, showDiamond: settings.showDiamond, showEMA200: settings.showEMA200, showFVG: settings.showFVG, showOB: settings.showOB }).catch(() => {});
-      }, 2000);
-    } else {
-      saveTimerRef.current = null; // đánh dấu đã qua lần đầu
+    // Skip lần render đầu tiên (load từ DB, không cần save lại)
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
     }
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveSettings({ symbol, timeframe, minConfidence: settings.minConfidence, showOP: settings.showOP, showMLP: settings.showMLP, showKTR: settings.showKTR, showPivot: settings.showPivot, showDiamond: settings.showDiamond, showEMA200: settings.showEMA200, showFVG: settings.showFVG, showOB: settings.showOB }).catch(() => {});
+    }, 2000);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [symbol, timeframe, settings]);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -110,27 +112,6 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
 
   // Đồng bộ ref với state để dùng trong WebSocket callback
   useEffect(() => { tgEnabledRef.current = tgEnabled; }, [tgEnabled]);
-
-  // Auto-save settings lên DB khi user thay đổi (debounced 1.5s)
-  useEffect(() => {
-    if (!user) return;
-    const timer = setTimeout(() => {
-      saveSettings({
-        symbol,
-        timeframe,
-        minConfidence: settings.minConfidence,
-        showOP: settings.showOP,
-        showMLP: settings.showMLP,
-        showKTR: settings.showKTR,
-        showPivot: settings.showPivot,
-        showDiamond: settings.showDiamond,
-        showEMA200: settings.showEMA200,
-        showFVG: settings.showFVG ?? false,
-        showOB: settings.showOB ?? false,
-      }).catch(() => {}); // silent fail
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [symbol, timeframe, settings, user, saveSettings]);
 
   useEffect(() => {
     let disposed = false;
