@@ -416,3 +416,87 @@ body {
 .cf-name { font-weight: 600; min-width: 52px; color: #ccc; }
 .cf-detail { color: #777; font-size: 10px; }
 .cf-row.fail .cf-name { color: #666; }
+
+
+/* ===== AUTH PAGE ===== */
+.auth-page {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #060d1a 0%, #0a1628 50%, #0d1b2a 100%);
+  padding: 20px;
+}
+.auth-card {
+  background: #0a1628; border: 1px solid #1e2d4a;
+  border-radius: 16px; padding: 32px; width: 100%; max-width: 380px;
+  text-align: center;
+}
+.auth-logo { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 4px; }
+.auth-subtitle { color: #666; font-size: 13px; margin-bottom: 24px; }
+.auth-tabs { display: flex; gap: 0; margin-bottom: 20px; border-radius: 8px; overflow: hidden; border: 1px solid #1e2d4a; }
+.auth-tab {
+  flex: 1; padding: 10px; font-size: 13px; font-weight: 600;
+  background: transparent; border: none; color: #888; cursor: pointer; transition: all 0.2s;
+}
+.auth-tab.active { background: #1a2744; color: #ffd700; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-input {
+  background: #0d1b2a; border: 1px solid #2a3f5f; border-radius: 8px;
+  padding: 12px 14px; color: #e0e0e0; font-size: 14px; outline: none;
+  transition: border-color 0.2s;
+}
+.auth-input:focus { border-color: #ffd700; }
+.auth-error { color: #ef4444; font-size: 12px; text-align: left; padding: 4px 0; }
+.auth-submit {
+  background: linear-gradient(135deg, #ffd700, #f59e0b); color: #000;
+  border: none; border-radius: 8px; padding: 12px; font-size: 14px;
+  font-weight: 700; cursor: pointer; transition: opacity 0.2s;
+}
+.auth-submit:hover { opacity: 0.9; }
+.auth-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ===== SETTINGS MODAL ===== */
+.settings-modal {
+  background: #0d1b2a; border: 1px solid #2a3f5f; border-radius: 12px;
+  width: 95vw; max-width: 460px; max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6); animation: popupIn 0.2s ease-out;
+}
+.settings-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px; border-bottom: 1px solid #1e2d4a; position: sticky; top: 0;
+  background: #0d1b2a; z-index: 1;
+}
+.settings-header h2 { font-size: 16px; color: #ffd700; }
+.settings-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 20px; }
+.settings-section h4 { font-size: 13px; color: #888; margin-bottom: 10px; padding-bottom: 4px; border-bottom: 1px solid #1e2d4a; }
+.setting-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: #ccc; }
+.setting-email { font-size: 11px; color: #666; }
+.setting-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; font-size: 12px; color: #ccc; gap: 12px;
+}
+.setting-row select, .setting-row input[type="text"] {
+  background: #0a1628; border: 1px solid #2a3f5f; border-radius: 6px;
+  padding: 6px 10px; color: #e0e0e0; font-size: 12px; max-width: 160px;
+}
+.setting-row input[type="range"] { max-width: 120px; accent-color: #ffd700; }
+.setting-row input[type="checkbox"] { accent-color: #22c55e; width: 18px; height: 18px; }
+.setting-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.stoggle {
+  background: #1a2744; border: 1px solid #2a3f5f; color: #666;
+  padding: 4px 10px; font-size: 11px; font-weight: 600;
+  border-radius: 4px; cursor: pointer; transition: all 0.2s;
+}
+.stoggle.on { border-color: #ffd700; color: #ffd700; background: rgba(255,215,0,0.08); }
+.settings-footer {
+  padding: 14px 20px; border-top: 1px solid #1e2d4a;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.settings-msg { font-size: 12px; flex: 1; }
+.btn-save {
+  background: #22c55e; color: #fff; border: none; border-radius: 6px;
+  padding: 8px 16px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-save:disabled { opacity: 0.5; }
+.btn-logout {
+  background: transparent; border: 1px solid #ef4444; color: #ef4444;
+  border-radius: 6px; padding: 8px 12px; font-size: 12px; cursor: pointer;
+}

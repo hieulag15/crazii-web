@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 import type { IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData, SeriesMarker, Time } from 'lightweight-charts';
 import { calculateAll, calculatePivot, getGTHStatus, calculateEMA200, calculateADR } from './utils/craziiEngine';
@@ -6,6 +6,9 @@ import { fetchCandles, fetchDailyCandles, connectWebSocket, SYMBOLS, TIMEFRAMES 
 import type { LiveCandle } from './utils/dataService';
 import { notifyEnhancedSignals, seedEnhancedSent } from './utils/telegramNotifier';
 import type { CraziiSettings, SystemStatus, SignalDisplay } from './types';
+import { useAuth } from './contexts/AuthContext';
+import LoginPage from './pages/LoginPage';
+import SettingsPage from './pages/SettingsPage';
 import './App.css';
 
 // GMT+7 offset in seconds (Việt Nam timezone)
@@ -17,22 +20,56 @@ function toGMT7(utcTimestamp: number): Time {
 }
 
 export default function App() {
-  const [symbol, setSymbol] = useState('BTCUSDT');
-  const [timeframe, setTimeframe] = useState('5m');
-  const [settings, setSettings] = useState<CraziiSettings>({
-    showOP: true,
-    showMLP: true,
-    showKTR: true,
-    showPivot: true,
-    showDiamond: true,
-    showCandles: true,
-    opHour: 5,
-    ktrMultiplier: 1.0,
-    haSmooth: 6,
-    showEMA200: true,
-    showFVG: false,
-    showOB: false,
-    minConfidence: 55,
+  const { user, isLoggedIn, loading: authLoading, logout, updateSettings: saveSettings } = useAuth();
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Auth guard
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060d1a', color: '#ffd700' }}>
+        ⏳ Đang tải...
+      </div>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return <LoginPage />;
+  }
+
+  if (showSettings) {
+    return <SettingsPage onBack={() => setShowSettings(false)} />;
+  }
+
+  return <ChartApp user={user} onOpenSettings={() => setShowSettings(true)} onLogout={logout} saveSettings={saveSettings} />;
+}
+
+// ===== Main Chart App (extracted to separate component) =====
+
+function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
+  user: import('./utils/apiClient').AuthUser | null;
+  onOpenSettings: () => void;
+  onLogout: () => void;
+  saveSettings: (s: Record<string, unknown>) => Promise<void>;
+}) {
+  const [symbol, setSymbol] = useState(user?.settings?.symbol || 'BTCUSDT');
+  const [timeframe, setTimeframe] = useState(user?.settings?.timeframe || '5m');
+  const [settings, setSettings] = useState<CraziiSettings>(() => {
+    const s = user?.settings;
+    return {
+      showOP: s?.showOP ?? true,
+      showMLP: s?.showMLP ?? true,
+      showKTR: s?.showKTR ?? true,
+      showPivot: s?.showPivot ?? true,
+      showDiamond: s?.showDiamond ?? true,
+      showCandles: true,
+      opHour: 5,
+      ktrMultiplier: 1.0,
+      haSmooth: 6,
+      showEMA200: s?.showEMA200 ?? true,
+      showFVG: s?.showFVG ?? false,
+      showOB: s?.showOB ?? false,
+      minConfidence: s?.minConfidence ?? 55,
+    };
   });
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [signals, setSignals] = useState<SignalDisplay[]>([]);

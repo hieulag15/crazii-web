@@ -132,7 +132,7 @@ export function connectWebSocket(
   };
 
   ws.onerror = (error) => {
-    console.error('[WS] Error:', error);
+    if (!isClosed) console.error('[WS] Error:', error);
   };
 
   ws.onclose = () => {

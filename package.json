@@ -4,23 +4,34 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n api,web -c yellow,cyan \"tsx --env-file=.env dev-server.ts\" \"vite\"",
+    "dev:web": "vite",
+    "dev:api": "tsx --env-file=.env dev-server.ts",
+    "dev:full": "vercel dev",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "jsonwebtoken": "^9.0.3",
     "lightweight-charts": "^4.2.2",
+    "mongodb": "^7.4.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vercel/node": "^5.8.21",
     "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^10.0.3",
+    "dotenv": "^17.4.2",
     "oxlint": "^1.69.0",
+    "tsx": "^4.22.4",
     "typescript": "~6.0.2",
     "vite": "^8.1.0"
   }

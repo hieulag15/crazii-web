@@ -1,25 +1,45 @@
 /**
  * Vercel Serverless Function: /api/check-signals
- * Cron gọi endpoint này → quét tín hiệu CRAZII → gửi Telegram.
+ * Cron/External trigger → quét tín hiệu CRAZII → gửi Telegram cho tất cả users đã bật.
  *
- * ENV cần thiết (cấu hình trên Vercel Dashboard):
- *  - TELEGRAM_BOT_TOKEN : token bot (từ @BotFather)
- *  - TELEGRAM_CHAT_ID   : id channel/chat (vd: @ten_channel hoặc -100xxxx)
- *  - CRON_SECRET        : (tùy chọn) bảo vệ endpoint khỏi gọi trái phép
- *  - CRAZII_SYMBOLS     : (tùy chọn) danh sách symbol, cách nhau dấu phẩy
- *  - CRAZII_TIMEFRAME   : (tùy chọn) khung thời gian, mặc định 5m
+ * Logic:
+ * 1. Query tất cả users có telegramEnabled = true
+ * 2. Gom danh sách symbol/timeframe unique
+ * 3. Quét tín hiệu nâng cao (enhanced) cho từng cặp
+ * 4. Với mỗi user: lọc tín hiệu theo telegramMinConfidence → gửi TG
+ *
+ * ENV:
+ *  - MONGODB_URI, TELEGRAM_BOT_TOKEN
+ *  - CRON_SECRET (tùy chọn, bảo vệ endpoint)
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { detectAllSignals } from './lib/detector';
+import { getDB } from './lib/db';
+import type { UserDoc } from './lib/db';
+import { detectSignalsForSymbol } from './lib/detector';
 import { formatEnhancedMessage } from './lib/formatter';
-import { sendTelegramMessage } from './lib/telegram';
 
-// Cache chống gửi trùng trong cùng instance (warm). Key = symbol|time|side|label
+const TELEGRAM_API = 'https://api.telegram.org';
+
+// Cache chống gửi trùng trong cùng invocation
 const sentCache = new Set<string>();
 
+async function sendToChat(chatId: string, text: string): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+  try {
+    const res = await fetch(`${TELEGRAM_API}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+    const data = await res.json();
+    return data.ok === true;
+  } catch { return false; }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Bảo vệ endpoint (tùy chọn): yêu cầu header authorization khớp CRON_SECRET
+  // Bảo vệ endpoint
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
     const auth = req.headers['authorization'];
@@ -28,49 +48,78 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  const symbols = (process.env.CRAZII_SYMBOLS || 'XAUUSDT,BTCUSDT')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const timeframe = process.env.CRAZII_TIMEFRAME || '5m';
-  const minConfidence = Number(process.env.CRAZII_MIN_CONFIDENCE || '60');
-
   try {
-    const detected = await detectAllSignals(symbols, timeframe, minConfidence);
+    const db = await getDB();
+    const users = db.collection<UserDoc>('users');
 
-    if (detected.length === 0) {
-      return res.status(200).json({ ok: true, sent: 0, message: 'No new signals' });
+    // 1. Lấy tất cả users bật Telegram
+    const tgUsers = await users.find({
+      'settings.telegramEnabled': true,
+      'settings.telegramChatId': { $exists: true, $ne: '' },
+    }).toArray();
+
+    if (tgUsers.length === 0) {
+      // Fallback: gửi vào channel mặc định (env var) nếu không có user nào
+      const defaultChatId = process.env.TELEGRAM_CHAT_ID;
+      const defaultSymbols = (process.env.CRAZII_SYMBOLS || 'XAUUSDT,BTCUSDT').split(',').map(s => s.trim());
+      const timeframe = process.env.CRAZII_TIMEFRAME || '5m';
+      const minConf = Number(process.env.CRAZII_MIN_CONFIDENCE || '90');
+
+      let sent = 0;
+      for (const symbol of defaultSymbols) {
+        const detected = await detectSignalsForSymbol(symbol, timeframe, minConf);
+        for (const d of detected) {
+          const key = `default|${d.enhanced.time}|${d.enhanced.side}|${d.enhanced.label}`;
+          if (sentCache.has(key)) continue;
+          if (defaultChatId) {
+            const msg = formatEnhancedMessage(d.enhanced, symbol, timeframe);
+            const ok = await sendToChat(defaultChatId, msg);
+            if (ok) { sentCache.add(key); sent++; }
+          }
+        }
+      }
+      return res.status(200).json({ ok: true, mode: 'default', sent });
     }
 
-    let sent = 0;
-    const errors: string[] = [];
+    // 2. Gom symbol/timeframe unique
+    const pairs = new Set<string>();
+    tgUsers.forEach((u) => {
+      const s = u.settings?.symbol || 'XAUUSDT';
+      const tf = u.settings?.timeframe || '5m';
+      pairs.add(`${s}|${tf}`);
+    });
 
-    for (const d of detected) {
-      const e = d.enhanced;
-      const dedupKey = `${d.symbol}|${e.time}|${e.side}|${e.label}`;
-      if (sentCache.has(dedupKey)) continue;
+    // 3. Quét tín hiệu cho mỗi cặp (cache kết quả)
+    const signalsByPair = new Map<string, Awaited<ReturnType<typeof detectSignalsForSymbol>>>();
+    for (const pair of pairs) {
+      const [symbol, tf] = pair.split('|');
+      const signals = await detectSignalsForSymbol(symbol, tf, 0); // lấy tất cả, lọc sau
+      signalsByPair.set(pair, signals);
+    }
 
-      const message = formatEnhancedMessage(e, d.symbol, d.timeframe);
+    // 4. Gửi cho từng user
+    let totalSent = 0;
+    for (const user of tgUsers) {
+      const s = user.settings?.symbol || 'XAUUSDT';
+      const tf = user.settings?.timeframe || '5m';
+      const minConf = user.settings?.telegramMinConfidence ?? 90;
+      const chatId = user.settings?.telegramChatId;
+      if (!chatId) continue;
 
-      const result = await sendTelegramMessage(message);
-      if (result.ok) {
-        sentCache.add(dedupKey);
-        sent++;
-      } else {
-        errors.push(result.error || 'unknown');
+      const signals = signalsByPair.get(`${s}|${tf}`) || [];
+      const qualified = signals.filter((d) => d.enhanced.confidence >= minConf);
+
+      for (const d of qualified) {
+        const key = `${chatId}|${d.enhanced.time}|${d.enhanced.side}|${d.enhanced.label}`;
+        if (sentCache.has(key)) continue;
+        const msg = formatEnhancedMessage(d.enhanced, s, tf);
+        const ok = await sendToChat(chatId, msg);
+        if (ok) { sentCache.add(key); totalSent++; }
       }
     }
 
-    return res.status(200).json({
-      ok: true,
-      detected: detected.length,
-      sent,
-      errors: errors.length > 0 ? errors : undefined,
-    });
+    return res.status(200).json({ ok: true, mode: 'users', userCount: tgUsers.length, sent: totalSent });
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    });
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : 'Unknown' });
   }
 }
