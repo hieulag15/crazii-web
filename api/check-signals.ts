@@ -14,10 +14,10 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getDB } from './lib/db';
-import type { UserDoc } from './lib/db';
-import { detectSignalsForSymbol } from './lib/detector';
-import { formatEnhancedMessage } from './lib/formatter';
+import { getDB } from './lib/db.js';
+import type { UserDoc } from './lib/db.js';
+import { detectSignalsForSymbol } from './lib/detector.js';
+import { formatEnhancedMessage } from './lib/formatter.js';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 

@@ -3,9 +3,9 @@
  * (enhanced: confidence, TP/SL, R:R, hợp lưu FVG/OB) ở nến vừa đóng.
  */
 
-import { calculateAll, calculatePivot, calculateADR } from '../../src/utils/craziiEngine';
-import { fetchCandlesServer } from '../../src/utils/serverData';
-import type { EnhancedSignal } from '../../src/types';
+import { calculateAll, calculatePivot, calculateADR } from './engine.js';
+import { fetchCandlesServer } from './engine.js';
+import type { EnhancedSignal } from './engine.js';
 
 export interface DetectedSignal {
   symbol: string;

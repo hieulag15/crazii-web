@@ -6,8 +6,8 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ObjectId } from 'mongodb';
-import { getDB } from '../lib/db';
-import { getUserFromRequest } from '../lib/auth';
+import { getDB } from '../lib/db.js';
+import { getUserFromRequest } from '../lib/auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = getUserFromRequest(req);

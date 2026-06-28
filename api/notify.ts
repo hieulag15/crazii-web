@@ -10,7 +10,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { sendTelegramMessage } from './lib/telegram';
+import { sendTelegramMessage } from './lib/telegram.js';
 
 interface NotifySignal {
   type: string;

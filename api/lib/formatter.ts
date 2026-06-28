@@ -2,7 +2,7 @@
  * Format tín hiệu CRAZII (enhanced) thành message Telegram (HTML)
  */
 
-import type { EnhancedSignal } from '../../src/types';
+import type { EnhancedSignal } from './engine.js';
 
 /** Format thời gian GMT+7 */
 function timeGMT7(timestamp: number): string {
