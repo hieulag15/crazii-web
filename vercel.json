@@ -1,4 +1,13 @@
 {
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@5",
+      "includeFiles": "src/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
   "crons": [
     {
       "path": "/api/check-signals",
