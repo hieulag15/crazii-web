@@ -8,7 +8,7 @@
 
 import type {
   Candle, OPData, MLPData, KTRData, KSIData, KCXData, PivotData,
-  TradeSignal, FVG, OrderBlock, EnhancedSignal, Confluence, DJDDSignal,
+  TradeSignal, FVG, OrderBlock, EnhancedSignal, Confluence, DJDDSignal, SRZone,
 } from '../types/index.js';
 import { priceInFVG, priceInOB } from './technicalAnalysis.js';
 
@@ -24,6 +24,7 @@ export interface EnhanceContext {
   fvgs: FVG[];
   orderBlocks: OrderBlock[];
   djdd: DJDDSignal[];
+  srZones: SRZone[];
 }
 
 // Trọng số điểm cho từng yếu tố hợp lưu (tổng tối đa = 100)
@@ -167,26 +168,55 @@ function enhanceOne(
   const ema = ctx.ema200[idx];
 
   // ===== A) TP/SL =====
-  // SL dựa trên swing gần nhất + đệm ATR. TP tính theo bội số R so với ENTRY
-  // (không dùng cứng mức KTR vì giá có thể đã vượt KTR -> reward âm).
+  // SL dựa trên swing gần nhất + đệm ATR. TP tính theo mốc hỗ trợ/kháng cự (SRZone).
+  // Nếu không có mốc SRZone phù hợp thì fallback về mốc R hoặc KTR.
   const atrVal = localATR(ctx.candles, idx, 14);
   let sl: number;
   let tp1: number, tp2: number, tp3: number;
 
   if (isBuy) {
     const swingLow = findSwingLow(ctx.candles, idx, 10);
-    // SL = swing thấp nhất trong 10 nến - đệm 0.3 ATR
-    // Tối thiểu cách entry 1 ATR để tránh bị quét bởi nhiễu nhỏ
     const rawSL = swingLow - atrVal * 0.3;
-    const minSL = entry - atrVal * 1.5; // SL không gần hơn 1.5 ATR so với entry
+    const minSL = entry - atrVal * 1.5;
     sl = Math.min(rawSL, minSL);
+
+    // Tinh chỉnh SL theo vùng Hỗ trợ phía dưới entry
+    let supportSL = sl;
+    const supportZones = (ctx.srZones || []).filter((z) => z.high < entry);
+    if (supportZones.length > 0) {
+      supportZones.sort((a, b) => b.high - a.high); // lấy vùng gần nhất
+      const closestSupport = supportZones[0];
+      const targetSL = closestSupport.low - atrVal * 0.1;
+      if (targetSL < entry && targetSL > entry - atrVal * 3.5) {
+        supportSL = targetSL;
+      }
+    }
+    sl = Math.min(sl, supportSL);
+    sl = Math.max(sl, entry - atrVal * 3.5); // giới hạn SL tối đa 3.5 ATR
+
     const risk = entry - sl;
+
     // TP mặc định theo bội số R
     tp1 = entry + risk * 1.5;
     tp2 = entry + risk * 2.5;
     tp3 = entry + risk * 4.0;
-    // Nếu mức KTR còn nằm TRÊN entry (chưa bị vượt) thì ưu tiên dùng làm TP
-    if (ktr) {
+
+    // Tinh chỉnh TP theo vùng Kháng cự phía trên entry
+    const resistanceZones = (ctx.srZones || []).filter((z) => z.low > entry);
+    if (resistanceZones.length > 0) {
+      resistanceZones.sort((a, b) => a.low - b.low); // gần nhất xếp trước
+      tp1 = resistanceZones[0].low - atrVal * 0.1;
+      if (resistanceZones.length > 1) {
+        tp2 = resistanceZones[1].low - atrVal * 0.1;
+      } else {
+        tp2 = tp1 + risk * 1.2;
+      }
+      if (resistanceZones.length > 2) {
+        tp3 = resistanceZones[2].low - atrVal * 0.1;
+      } else {
+        tp3 = tp2 + risk * 1.5;
+      }
+    } else if (ktr) {
       if (ktr.plus1 > entry) tp1 = ktr.plus1;
       if (ktr.plus2 > entry) tp2 = ktr.plus2;
       if (ktr.plus3 > entry) tp3 = ktr.plus3;
@@ -194,13 +224,46 @@ function enhanceOne(
   } else {
     const swingHigh = findSwingHigh(ctx.candles, idx, 10);
     const rawSL = swingHigh + atrVal * 0.3;
-    const minSL = entry + atrVal * 1.5; // SL không gần hơn 1.5 ATR
+    const minSL = entry + atrVal * 1.5;
     sl = Math.max(rawSL, minSL);
+
+    // Tinh chỉnh SL theo vùng Kháng cự phía trên entry
+    let resistanceSL = sl;
+    const resistanceZones = (ctx.srZones || []).filter((z) => z.low > entry);
+    if (resistanceZones.length > 0) {
+      resistanceZones.sort((a, b) => a.low - b.low);
+      const closestResistance = resistanceZones[0];
+      const targetSL = closestResistance.high + atrVal * 0.1;
+      if (targetSL > entry && targetSL < entry + atrVal * 3.5) {
+        resistanceSL = targetSL;
+      }
+    }
+    sl = Math.max(sl, resistanceSL);
+    sl = Math.min(sl, entry + atrVal * 3.5); // giới hạn tối đa 3.5 ATR
+
     const risk = sl - entry;
+
+    // TP mặc định theo bội số R
     tp1 = entry - risk * 1.5;
     tp2 = entry - risk * 2.5;
     tp3 = entry - risk * 4.0;
-    if (ktr) {
+
+    // Tinh chỉnh TP theo vùng Hỗ trợ phía dưới entry
+    const supportZones = (ctx.srZones || []).filter((z) => z.high < entry);
+    if (supportZones.length > 0) {
+      supportZones.sort((a, b) => b.high - a.high);
+      tp1 = supportZones[0].high + atrVal * 0.1;
+      if (supportZones.length > 1) {
+        tp2 = supportZones[1].high + atrVal * 0.1;
+      } else {
+        tp2 = tp1 - risk * 1.2;
+      }
+      if (supportZones.length > 2) {
+        tp3 = supportZones[2].high + atrVal * 0.1;
+      } else {
+        tp3 = tp2 - risk * 1.5;
+      }
+    } else if (ktr) {
       if (ktr.minus1 < entry) tp1 = ktr.minus1;
       if (ktr.minus2 < entry) tp2 = ktr.minus2;
       if (ktr.minus3 < entry) tp3 = ktr.minus3;
@@ -219,6 +282,12 @@ function enhanceOne(
   const risk = Math.abs(entry - sl);
   const reward = Math.abs(tp1 - entry);
   const rr = risk > 0 ? reward / risk : 0;
+
+  // Đánh giá mức độ rủi ro (Risk Grading)
+  const riskPercent = entry > 0 ? (risk / entry) * 100 : 0;
+  let riskLevel: 'Low' | 'Medium' | 'High' = 'Medium';
+  if (riskPercent <= 0.6) riskLevel = 'Low';
+  else if (riskPercent > 1.4) riskLevel = 'High';
 
   // ===== B) Confidence scoring =====
   const confluences: Confluence[] = [];
@@ -282,6 +351,17 @@ function enhanceOne(
     });
   }
 
+  // Tìm vùng S/R gần nhất để đưa vào mô tả
+  let srDetail = '';
+  if (ctx.srZones && ctx.srZones.length > 0) {
+    const nearestZone = isBuy
+      ? (ctx.srZones.find((z) => z.low > entry) || ctx.srZones[0])
+      : (ctx.srZones.find((z) => z.high < entry) || ctx.srZones[0]);
+    const zoneType = nearestZone.high < entry ? 'Hỗ trợ' : 'Kháng cự';
+    const zoneStrength = nearestZone.strength >= 40 ? 'Mạnh' : 'Nhẹ';
+    srDetail = `\n🏛️ S/R gần nhất: ${zoneType} ${zoneStrength} [${nearestZone.low.toFixed(2)} - ${nearestZone.high.toFixed(2)}] (Lực: ${nearestZone.strength})`;
+  }
+
   // ===== Reason text =====
   const checkList = confluences
     .map((c) => `${c.passed ? '✅' : '❌'} ${c.name}: ${c.detail}`)
@@ -289,6 +369,7 @@ function enhanceOne(
   const swNote = sideways ? ' ⚠️ SIDEWAY' : '';
   const reason = `${label} (${signal.type.toUpperCase()})${swNote}\n` +
     `📊 Confidence: ${confidence}% | R:R = 1:${rr.toFixed(1)}\n` +
+    `🛡️ Rủi ro: ${riskLevel === 'Low' ? 'Thấp 🟢' : riskLevel === 'Medium' ? 'Vừa 🟡' : 'Cao 🔴'} (${riskPercent.toFixed(2)}%)${srDetail}\n` +
     `━━━━━━━━━━━━\n${checkList}`;
 
   return {
@@ -303,6 +384,8 @@ function enhanceOne(
     confidence,
     confluences,
     reason,
+    riskLevel,
+    riskPercent,
   };
 }
 

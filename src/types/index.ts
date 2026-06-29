@@ -119,6 +119,12 @@ export interface Confluence {
   detail: string;     // mô tả ngắn
 }
 
+export interface SRZone {
+  high: number;
+  low: number;
+  strength: number;
+}
+
 export interface EnhancedSignal {
   time: number;
   side: 'buy' | 'sell';
@@ -133,6 +139,8 @@ export interface EnhancedSignal {
   confidence: number;    // 0-100
   confluences: Confluence[];
   reason: string;
+  riskLevel?: 'Low' | 'Medium' | 'High';
+  riskPercent?: number;
 }
 
 export interface CraziiResult {
@@ -150,6 +158,7 @@ export interface CraziiResult {
   fvgs: FVG[];
   orderBlocks: OrderBlock[];
   enhancedSignals: EnhancedSignal[];
+  srZones?: SRZone[];
 }
 
 export interface CraziiSettings {

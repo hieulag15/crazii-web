@@ -757,6 +757,14 @@ function SignalPopup({ signal, onClose }: { signal: SignalDisplay; onClose: () =
               <div className="tp-row tp"><span>🎯 TP1</span><b>{e.tp1.toFixed(2)}</b></div>
               <div className="tp-row tp"><span>🎯 TP2</span><b>{e.tp2.toFixed(2)}</b></div>
               <div className="tp-row tp"><span>🎯 TP3</span><b>{e.tp3.toFixed(2)}</b></div>
+              {e.riskLevel && e.riskPercent !== undefined && (
+                <div className="tp-row risk" style={{ borderTop: '1px dashed #1e2d4a', paddingTop: '6px', marginTop: '4px' }}>
+                  <span>🛡️ Mức rủi ro</span>
+                  <b style={{ color: e.riskLevel === 'Low' ? '#22c55e' : e.riskLevel === 'Medium' ? '#f59e0b' : '#ef4444' }}>
+                    {e.riskLevel === 'Low' ? 'THẤP (An toàn)' : e.riskLevel === 'Medium' ? 'VỪA (Trung bình)' : 'CAO (Cẩn thận)'} ({e.riskPercent.toFixed(2)}%)
+                  </b>
+                </div>
+              )}
             </div>
 
             {/* Confluence checklist */}
@@ -770,6 +778,15 @@ function SignalPopup({ signal, onClose }: { signal: SignalDisplay; onClose: () =
                 </div>
               ))}
             </div>
+
+            {/* S/R Details */}
+            {signal.reason && signal.reason.includes('🏛️ S/R gần nhất:') && (
+              <div style={{ padding: '0 18px 12px 18px', borderTop: '1px solid #1e2d4a', paddingTop: '10px', fontSize: '11px', color: '#8892b0' }}>
+                {signal.reason.split('\n').filter(line => line.includes('🏛️ S/R gần nhất:')).map((line, i) => (
+                  <div key={i} style={{ color: '#00f0ff', fontWeight: 600 }}>{line}</div>
+                ))}
+              </div>
+            )}
           </>
         )}
 

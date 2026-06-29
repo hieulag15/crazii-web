@@ -119,3 +119,138 @@ export function priceInOB(price: number, obs: OrderBlock[], side: 'buy' | 'sell'
   }
   return null;
 }
+
+export interface SRZone {
+  high: number;
+  low: number;
+  strength: number;
+}
+
+/**
+ * Calculates Support and Resistance Zones based on Pivot Points & OHLC touches
+ * Ports the Pine Script S/R Zones MTF logic to TS.
+ */
+export function calculateSRZones(
+  candles: Candle[],
+  prd = 5,
+  loopback = 250,
+  ChannelW = 6,
+  minstrength = 1
+): SRZone[] {
+  if (candles.length < prd * 2 + 1) return [];
+
+  const actualLoopback = Math.min(loopback, candles.length);
+  const slice = candles.slice(-actualLoopback);
+  const highs = slice.map((c) => c.high);
+  const lows = slice.map((c) => c.low);
+
+  const pivotvals: number[] = [];
+
+  // 1. Calculate Pivot Points in slice
+  for (let x = prd; x < highs.length - prd; x++) {
+    // Pivot High
+    let isPivotHigh = true;
+    for (let i = x - prd; i <= x + prd; i++) {
+      if (highs[i] > highs[x]) {
+        isPivotHigh = false;
+        break;
+      }
+    }
+    if (isPivotHigh) pivotvals.push(highs[x]);
+
+    // Pivot Low
+    let isPivotLow = true;
+    for (let i = x - prd; i <= x + prd; i++) {
+      if (lows[i] < lows[x]) {
+        isPivotLow = false;
+        break;
+      }
+    }
+    if (isPivotLow) pivotvals.push(lows[x]);
+  }
+
+  if (pivotvals.length === 0) return [];
+
+  // 2. Channel Width calculation
+  const prdhighest = Math.max(...pivotvals);
+  const prdlowest = Math.min(...pivotvals);
+  const cwidth = ((prdhighest - prdlowest) * ChannelW) / 100;
+
+  // Group pivots to find S/R boundaries and base strength
+  const supres: number[] = []; // stores [strength, high, low] flat list
+  for (let x = 0; x < pivotvals.length; x++) {
+    const loVal = pivotvals[x];
+    let lo = loVal;
+    let hi = lo;
+    let numpp = 0;
+
+    for (let y = 0; y < pivotvals.length; y++) {
+      const cpp = pivotvals[y];
+      const wdth = cpp <= hi ? hi - cpp : cpp - lo;
+      if (wdth <= cwidth) {
+        if (cpp <= hi) {
+          lo = Math.min(lo, cpp);
+        } else {
+          hi = Math.max(hi, cpp);
+        }
+        numpp += 20;
+      }
+    }
+    supres.push(numpp, hi, lo);
+  }
+
+  // 3. Refine strength by checking OHLC touches of the last 500 candles
+  const touchSlice = candles.slice(-500);
+  for (let x = 0; x < pivotvals.length; x++) {
+    const h = supres[x * 3 + 1];
+    const l = supres[x * 3 + 2];
+    let s = 0;
+    for (let y = 0; y < touchSlice.length; y++) {
+      const c = touchSlice[y];
+      if (
+        (c.high <= h && c.high >= l) ||
+        (c.low <= h && c.low >= l) ||
+        (c.open <= h && c.open >= l) ||
+        (c.close <= h && c.close >= l)
+      ) {
+        s += 1;
+      }
+    }
+    supres[x * 3] += s;
+  }
+
+  // 4. Select strongest non-overlapping S/R channels
+  const selectedZones: SRZone[] = [];
+  for (let step = 0; step < 10; step++) {
+    let maxStv = -1;
+    let bestIdx = -1;
+
+    for (let y = 0; y < pivotvals.length; y++) {
+      const stv = supres[y * 3];
+      if (stv > maxStv && stv >= minstrength * 20) {
+        maxStv = stv;
+        bestIdx = y;
+      }
+    }
+
+    if (bestIdx >= 0) {
+      const hh = supres[bestIdx * 3 + 1];
+      const ll = supres[bestIdx * 3 + 2];
+      selectedZones.push({ high: hh, low: ll, strength: maxStv });
+
+      // Clear strength of overlapping pivot points to avoid picking redundant zones
+      for (let y = 0; y < pivotvals.length; y++) {
+        const pHi = supres[y * 3 + 1];
+        const pLo = supres[y * 3 + 2];
+        if ((pHi <= hh && pHi >= ll) || (pLo <= hh && pLo >= ll)) {
+          supres[y * 3] = -1;
+        }
+      }
+    } else {
+      break;
+    }
+  }
+
+  // Sort S/R zones by strength descending
+  return selectedZones.sort((a, b) => b.strength - a.strength);
+}

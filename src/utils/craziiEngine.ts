@@ -16,10 +16,10 @@
 import type {
   Candle, OPData, MLPData, KTRData, HACandle,
   KSIData, KCXData, PivotData, GTHStatus,
-  DiamondSignal, DJDDSignal, TradeSignal, CraziiResult,
+  DiamondSignal, DJDDSignal, TradeSignal, CraziiResult, SRZone
 } from '../types/index.js';
 import { ema, sma, atr } from './helpers.js';
-import { detectFVG, detectOrderBlocks } from './technicalAnalysis.js';
+import { detectFVG, detectOrderBlocks, calculateSRZones } from './technicalAnalysis.js';
 import { enhanceSignals } from './signalEnhancer.js';
 
 // ============================================================
@@ -612,6 +612,9 @@ export function calculateAll(
   const fvgs = detectFVG(candles);
   const orderBlocks = detectOrderBlocks(candles);
 
+  // E) Hỗ trợ kháng cự cứng/nhẹ (S/R Channels)
+  const srZones = calculateSRZones(candles);
+
   // EMA200 dạng mảng số để chấm điểm hợp lưu
   const ema200Arr = ema(candles.map((c) => c.close), 200);
 
@@ -625,12 +628,13 @@ export function calculateAll(
   const enhancedSignals = enhanceSignals(rawSignals, {
     candles, ops, mlps, ktrs, ksi, kcx, pivot,
     ema200: ema200Arr, fvgs, orderBlocks, djdd,
+    srZones,
   }, { minConfidence });
 
   return {
     ops, mlps, ktrs, haCandles, ksi, kcx, diamonds, djdd,
     engulfing, tamDiem, diamondBreak,
-    fvgs, orderBlocks, enhancedSignals,
+    fvgs, orderBlocks, enhancedSignals, srZones,
   };
 }
 
