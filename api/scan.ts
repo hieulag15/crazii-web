@@ -14,6 +14,7 @@
  */
 
 import { fetchCandlesServer, calculateAll, calculatePivot, calculateADR, collectTradeSignals } from './_lib/engine.js';
+import { getDB } from './_lib/db.js';
 
 export default async function handler(req: any, res: any) {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -57,6 +58,13 @@ export default async function handler(req: any, res: any) {
     }
 
     const results = [];
+    let db: any = null;
+    try {
+      db = await getDB();
+    } catch (err) {
+      console.error('[DB] Failed to connect:', err);
+    }
+
     for (const { signal, label } of fresh) {
       const text = formatMessage({
         type: label,
@@ -76,6 +84,36 @@ export default async function handler(req: any, res: any) {
       });
       const data = await tgRes.json();
       results.push({ ok: data.ok, error: data.ok ? undefined : data.description });
+
+      if (data.ok && db) {
+        try {
+          const signalsCol = db.collection('signals');
+          await signalsCol.updateOne(
+            {
+              symbol,
+              timeframe: tf,
+              time: signal.time,
+              side: signal.type,
+              type: label,
+            },
+            {
+              $setOnInsert: {
+                type: label,
+                side: signal.type,
+                symbol,
+                timeframe: tf,
+                price: signal.price,
+                time: signal.time,
+                reason: signal.reason,
+                createdAt: new Date(),
+              },
+            },
+            { upsert: true }
+          );
+        } catch (dbErr) {
+          console.error('[DB] Failed to save signal to DB in scan:', dbErr);
+        }
+      }
     }
 
     return res.status(200).json({ ok: true, sent: results.length, results });

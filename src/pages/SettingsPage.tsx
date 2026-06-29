@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   showOB: false,
   telegramEnabled: false,
   telegramChatId: '',
-  telegramMinConfidence: 90,
+  telegramMinConfidence: 80,
 };
 
 export default function SettingsPage({ onBack }: SettingsPageProps) {

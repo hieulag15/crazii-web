@@ -9,6 +9,7 @@ import type { CraziiSettings, SystemStatus, SignalDisplay } from './types';
 import { useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
+import AcademyPage from './pages/AcademyPage';
 import './App.css';
 
 // GMT+7 offset in seconds (Việt Nam timezone)
@@ -22,6 +23,7 @@ function toGMT7(utcTimestamp: number): Time {
 export default function App() {
   const { user, isLoggedIn, loading: authLoading, logout, updateSettings: saveSettings } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
+  const [showAcademy, setShowAcademy] = useState(false);
 
   // Auth guard
   if (authLoading) {
@@ -40,14 +42,19 @@ export default function App() {
     return <SettingsPage onBack={() => setShowSettings(false)} />;
   }
 
-  return <ChartApp user={user} onOpenSettings={() => setShowSettings(true)} onLogout={logout} saveSettings={saveSettings} />;
+  if (showAcademy) {
+    return <AcademyPage onBack={() => setShowAcademy(false)} />;
+  }
+
+  return <ChartApp user={user} onOpenSettings={() => setShowSettings(true)} onOpenAcademy={() => setShowAcademy(true)} onLogout={logout} saveSettings={saveSettings} />;
 }
 
 // ===== Main Chart App (extracted to separate component) =====
 
-function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
+function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings }: {
   user: import('./utils/apiClient').AuthUser | null;
   onOpenSettings: () => void;
+  onOpenAcademy: () => void;
   onLogout: () => void;
   saveSettings: (s: Record<string, unknown>) => Promise<void>;
 }) {
@@ -564,6 +571,10 @@ function ChartApp({ user, onOpenSettings, onLogout, saveSettings }: {
           <Toggle label="FVG" active={!!settings.showFVG} color="#22c55e" onClick={() => setSettings((s) => ({ ...s, showFVG: !s.showFVG }))} />
           <Toggle label="OB" active={!!settings.showOB} color="#00e5ff" onClick={() => setSettings((s) => ({ ...s, showOB: !s.showOB }))} />
           <Toggle label={`📱 TG${tgCount > 0 ? ` (${tgCount})` : ''}`} active={tgEnabled} color="#229ed9" onClick={() => setTgEnabled((v) => !v)} />
+          
+          <button className="nav-btn academy-btn" onClick={onOpenAcademy} style={{ marginLeft: '12px' }}>📖 Học viện</button>
+          <button className="nav-btn" onClick={onOpenSettings} style={{ marginLeft: '6px' }}>⚙️ Cài đặt</button>
+          <button className="nav-btn logout-btn" onClick={onLogout} style={{ marginLeft: '6px' }}>Đăng xuất</button>
         </div>
       </header>
 

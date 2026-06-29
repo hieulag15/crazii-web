@@ -63,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const defaultChatId = process.env.TELEGRAM_CHAT_ID;
       const defaultSymbols = (process.env.CRAZII_SYMBOLS || 'XAUUSDT,BTCUSDT').split(',').map(s => s.trim());
       const timeframe = process.env.CRAZII_TIMEFRAME || '5m';
-      const minConf = Number(process.env.CRAZII_MIN_CONFIDENCE || '90');
+      const minConf = Number(process.env.CRAZII_MIN_CONFIDENCE || '80');
 
       let sent = 0;
       for (const symbol of defaultSymbols) {
@@ -74,7 +74,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (defaultChatId) {
             const msg = formatEnhancedMessage(d.enhanced, symbol, timeframe);
             const ok = await sendToChat(defaultChatId, msg);
-            if (ok) { sentCache.add(key); sent++; }
+            if (ok) {
+              sentCache.add(key);
+              sent++;
+              try {
+                const signalsCol = db.collection('signals');
+                await signalsCol.updateOne(
+                  {
+                    symbol: symbol,
+                    timeframe: timeframe,
+                    time: d.enhanced.time,
+                    side: d.enhanced.side,
+                    type: d.enhanced.label,
+                  },
+                  {
+                    $setOnInsert: {
+                      type: d.enhanced.label,
+                      side: d.enhanced.side,
+                      symbol: symbol,
+                      timeframe: timeframe,
+                      price: d.enhanced.entry,
+                      time: d.enhanced.time,
+                      reason: d.enhanced.reason,
+                      entry: d.enhanced.entry,
+                      sl: d.enhanced.sl,
+                      tp1: d.enhanced.tp1,
+                      tp2: d.enhanced.tp2,
+                      tp3: d.enhanced.tp3,
+                      rr: d.enhanced.rr,
+                      confidence: d.enhanced.confidence,
+                      createdAt: new Date(),
+                    },
+                  },
+                  { upsert: true }
+                );
+              } catch (dbErr) {
+                console.error('[DB] Failed to save fallback signal to DB:', dbErr);
+              }
+            }
           }
         }
       }
@@ -102,7 +139,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const user of tgUsers) {
       const s = user.settings?.symbol || 'XAUUSDT';
       const tf = user.settings?.timeframe || '5m';
-      const minConf = user.settings?.telegramMinConfidence ?? 90;
+      const minConf = user.settings?.telegramMinConfidence ?? 80;
       const chatId = user.settings?.telegramChatId;
       if (!chatId) continue;
 
@@ -114,7 +151,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (sentCache.has(key)) continue;
         const msg = formatEnhancedMessage(d.enhanced, s, tf);
         const ok = await sendToChat(chatId, msg);
-        if (ok) { sentCache.add(key); totalSent++; }
+        if (ok) {
+          sentCache.add(key);
+          totalSent++;
+          try {
+            const signalsCol = db.collection('signals');
+            await signalsCol.updateOne(
+              {
+                symbol: s,
+                timeframe: tf,
+                time: d.enhanced.time,
+                side: d.enhanced.side,
+                type: d.enhanced.label,
+              },
+              {
+                $setOnInsert: {
+                  type: d.enhanced.label,
+                  side: d.enhanced.side,
+                  symbol: s,
+                  timeframe: tf,
+                  price: d.enhanced.entry,
+                  time: d.enhanced.time,
+                  reason: d.enhanced.reason,
+                  entry: d.enhanced.entry,
+                  sl: d.enhanced.sl,
+                  tp1: d.enhanced.tp1,
+                  tp2: d.enhanced.tp2,
+                  tp3: d.enhanced.tp3,
+                  rr: d.enhanced.rr,
+                  confidence: d.enhanced.confidence,
+                  createdAt: new Date(),
+                },
+              },
+              { upsert: true }
+            );
+          } catch (dbErr) {
+            console.error('[DB] Failed to save user signal to DB:', dbErr);
+          }
+        }
       }
     }
 

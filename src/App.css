@@ -507,3 +507,43 @@ body {
   text-align: center; padding: 12px 8px;
   font-size: 11px; color: #888; line-height: 1.5;
 }
+
+/* ===== Navigation Toolbar Buttons ===== */
+.nav-btn {
+  background: #1a2744;
+  color: #fff;
+  border: 1px solid #2a3f5f;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  height: 28px;
+}
+.nav-btn:hover {
+  background: #253a5a;
+  border-color: #ffd700;
+  color: #ffd700;
+}
+.nav-btn.logout-btn {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+.nav-btn.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+.nav-btn.academy-btn {
+  border-color: rgba(0, 240, 255, 0.4);
+  color: #00f0ff;
+}
+.nav-btn.academy-btn:hover {
+  background: rgba(0, 240, 255, 0.1);
+  border-color: #00f0ff;
+  color: #00f0ff;
+}

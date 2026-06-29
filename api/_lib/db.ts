@@ -24,6 +24,25 @@ export async function getDB(): Promise<Db> {
   return cachedDb;
 }
 
+export interface SignalDoc {
+  _id?: string;
+  type: string;
+  side: 'buy' | 'sell';
+  symbol: string;
+  timeframe: string;
+  price: number;
+  time: number;
+  reason?: string;
+  entry?: number;
+  sl?: number;
+  tp1?: number;
+  tp2?: number;
+  tp3?: number;
+  rr?: number;
+  confidence?: number;
+  createdAt: Date;
+}
+
 // ===== User Schema (collection: users) =====
 export interface UserDoc {
   _id?: string;
@@ -50,7 +69,7 @@ export interface UserSettings {
   // Telegram
   telegramEnabled: boolean;
   telegramChatId?: string;
-  telegramMinConfidence: number; // ngưỡng % để auto-gửi TG (mặc định 90)
+  telegramMinConfidence: number; // ngưỡng % để auto-gửi TG (mặc định 80)
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -66,5 +85,5 @@ export const DEFAULT_SETTINGS: UserSettings = {
   showFVG: false,
   showOB: false,
   telegramEnabled: false,
-  telegramMinConfidence: 90,
+  telegramMinConfidence: 80,
 };

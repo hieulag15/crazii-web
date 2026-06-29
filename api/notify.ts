@@ -11,6 +11,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sendTelegramMessage } from './_lib/telegram.js';
+import { getDB } from './_lib/db.js';
 
 interface NotifySignal {
   type: string;
@@ -101,10 +102,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let sent = 0;
   const errors: string[] = [];
 
+  let db: any = null;
+  try {
+    db = await getDB();
+  } catch (err) {
+    console.error('[DB] Failed to connect:', err);
+  }
+
   for (const s of signals) {
     const result = await sendTelegramMessage(buildMessage(s));
-    if (result.ok) sent++;
-    else errors.push(result.error || 'unknown');
+    if (result.ok) {
+      sent++;
+      if (db) {
+        try {
+          const signalsCol = db.collection('signals');
+          await signalsCol.updateOne(
+            {
+              symbol: s.symbol,
+              timeframe: s.timeframe,
+              time: s.time,
+              side: s.side,
+              type: s.type,
+            },
+            {
+              $setOnInsert: {
+                type: s.type,
+                side: s.side,
+                symbol: s.symbol,
+                timeframe: s.timeframe,
+                price: s.price,
+                time: s.time,
+                reason: s.reason,
+                entry: s.entry,
+                sl: s.sl,
+                tp1: s.tp1,
+                tp2: s.tp2,
+                tp3: s.tp3,
+                rr: s.rr,
+                confidence: s.confidence,
+                createdAt: new Date(),
+              },
+            },
+            { upsert: true }
+          );
+        } catch (dbErr) {
+          console.error('[DB] Failed to save signal to DB:', dbErr);
+        }
+      }
+    } else {
+      errors.push(result.error || 'unknown');
+    }
   }
 
   return res.status(200).json({
