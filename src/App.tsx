@@ -104,8 +104,10 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const ksiContainerRef = useRef<HTMLDivElement>(null);
+  const kcxContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const ksiChartRef = useRef<IChartApi | null>(null);
+  const kcxChartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Hệ số zoom trục giá (Ctrl + lăn chuột). 1 = vừa khít nến.
@@ -137,6 +139,10 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
         ksiChartRef.current.remove();
         ksiChartRef.current = null;
       }
+      if (kcxChartRef.current) {
+        kcxChartRef.current.remove();
+        kcxChartRef.current = null;
+      }
       candleSeriesRef.current = null;
     }
 
@@ -148,12 +154,13 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
       if (ksiChartRef.current) { ksiChartRef.current.remove(); ksiChartRef.current = null; }
+      if (kcxChartRef.current) { kcxChartRef.current.remove(); kcxChartRef.current = null; }
       candleSeriesRef.current = null;
 
       // Fetch data
       const [candles, dailyCandles] = await Promise.all([
         fetchCandles(symbol, timeframe, 500),
-        fetchDailyCandles(symbol, 5),
+        fetchDailyCandles(symbol, 20),
       ]);
 
       // Check if disposed while fetching
@@ -305,16 +312,16 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
         const ktrData = crazii.ktrs.filter((k) => k.levels !== null);
         if (ktrData.length > 0) {
           const ktrConfig: { key: keyof NonNullable<typeof ktrData[0]['levels']>; color: string; label: string }[] = [
-            { key: 'plus1', color: '#22c55e', label: 'KTR+1' },
-            { key: 'plus2', color: '#16a34a', label: 'KTR+2' },
-            { key: 'plus3', color: '#15803d', label: 'KTR+3' },
-            { key: 'minus1', color: '#ef4444', label: 'KTR-1' },
-            { key: 'minus2', color: '#dc2626', label: 'KTR-2' },
-            { key: 'minus3', color: '#b91c1c', label: 'KTR-3' },
+            { key: 'plus1', color: '#ffd700', label: 'KTR+1' },
+            { key: 'plus2', color: '#ffd700', label: 'KTR+2' },
+            { key: 'plus3', color: '#ffd700', label: 'KTR+3' },
+            { key: 'minus1', color: '#ffd700', label: 'KTR-1' },
+            { key: 'minus2', color: '#ffd700', label: 'KTR-2' },
+            { key: 'minus3', color: '#ffd700', label: 'KTR-3' },
           ];
           ktrConfig.forEach(({ key, color, label }) => {
             chart.addLineSeries({
-              color, lineWidth: 1, lineStyle: 1, title: label,
+              color, lineWidth: 1, lineStyle: 2, title: label,
               autoscaleInfoProvider: () => null, // không kéo giãn trục giá
             })
               .setData(ktrData.map((k) => ({ time: toGMT7(k.time), value: k.levels![key] })));
@@ -447,6 +454,34 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
         ksiChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
           if (range && chartRef.current && !disposed) {
             chart.timeScale().setVisibleLogicalRange(range);
+          }
+        });
+      }
+
+      // === KCX CHART (BULLISHNESS) ===
+      if (kcxContainerRef.current && !disposed) {
+        const kcxChart = createChart(kcxContainerRef.current, {
+          width: kcxContainerRef.current.clientWidth,
+          height: 100,
+          layout: { background: { type: ColorType.Solid, color: '#0d1b2a' }, textColor: '#d1d4dc' },
+          grid: { vertLines: { color: '#1e2d4a' }, horzLines: { color: '#1e2d4a' } },
+          rightPriceScale: { borderColor: '#2a3f5f' },
+          timeScale: { borderColor: '#2a3f5f', timeVisible: true, visible: false },
+        });
+        kcxChartRef.current = kcxChart;
+
+        const kcxSeries = kcxChart.addHistogramSeries({ title: 'BULLISHNESS' });
+        kcxSeries.setData(crazii.kcx.map((item) => ({
+          time: toGMT7(item.time),
+          value: item.value * 100,
+          color: item.state === 'exhaustion' ? '#22c55e' :
+                 item.state === 'retailSell' ? '#2563eb' : '#1a1a1a',
+        })));
+
+        // Sync timescales
+        chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+          if (range && kcxChartRef.current && !disposed) {
+            kcxChart.timeScale().setVisibleLogicalRange(range);
           }
         });
       }
@@ -584,10 +619,15 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
           {loading && <div className="loading">⏳ Đang tải dữ liệu CRAZII...</div>}
           <div ref={chartContainerRef} className="chart-main" />
           <div className="ksi-header">
-            <span>KSI - Cá Mập Hành Động</span>
-            <span className="legend"><span style={{ color: '#22c55e' }}>■</span> Mua <span style={{ color: '#ef4444' }}>■</span> Bán</span>
+            <span>BOYS BUYING / SELLING</span>
+            <span className="legend"><span style={{ color: '#22c55e' }}>■</span> Buying <span style={{ color: '#ef4444' }}>■</span> Selling</span>
           </div>
           <div ref={ksiContainerRef} className="chart-ksi" />
+          <div className="ksi-header">
+            <span>BULLISHNESS (KCX)</span>
+            <span className="legend"><span style={{ color: '#2563eb' }}>■</span> Retail Sell <span style={{ color: '#22c55e' }}>■</span> Xtreme <span style={{ color: '#1a1a1a' }}>■</span> Retail Buy</span>
+          </div>
+          <div ref={kcxContainerRef} className="chart-kcx" />
         </div>
 
         {/* Sidebar */}

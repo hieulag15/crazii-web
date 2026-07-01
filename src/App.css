@@ -547,3 +547,10 @@ body {
   border-color: #00f0ff;
   color: #00f0ff;
 }
+
+
+/* KCX Panel */
+.chart-kcx {
+  height: 100px;
+  flex-shrink: 0;
+}
