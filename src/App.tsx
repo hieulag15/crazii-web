@@ -490,16 +490,7 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
       wsRef.current = connectWebSocket(symbol, timeframe, (candle: LiveCandle) => {
         if (disposed || !candleSeriesRef.current) return;
         try {
-          candleSeriesRef.current.update({
-            time: toGMT7(candle.time),
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-          });
-          setLivePrice(candle.close);
-
-          // Cập nhật mảng nến: update nến cuối hoặc thêm nến mới
+          // Cập nhật mảng nến raw trước
           const arr = candlesRef.current;
           if (arr.length > 0) {
             const lastC = arr[arr.length - 1];
@@ -508,19 +499,51 @@ function ChartApp({ user, onOpenSettings, onOpenAcademy, onLogout, saveSettings 
               low: candle.low, close: candle.close, volume: candle.volume,
             };
             if (candle.time === lastC.time) {
-              arr[arr.length - 1] = newCandle; // update nến đang chạy
+              arr[arr.length - 1] = newCandle;
             } else if (candle.time > lastC.time) {
-              arr.push(newCandle); // nến mới
-              if (arr.length > 600) arr.shift(); // giữ độ dài hợp lý
+              arr.push(newCandle);
+              if (arr.length > 600) arr.shift();
             }
           }
+
+          // Tính lại HA Smoothed cho nến cuối và update chart
+          // Chỉ cần tính HA cho 2 nến cuối (nến trước + nến hiện tại)
+          if (arr.length >= 2) {
+            const len = arr.length;
+            const c = arr[len - 1];
+            const prev = arr[len - 2];
+
+            // HA raw cho nến hiện tại
+            const prevHaOpen = (prev.open + prev.close) / 2;
+            const prevHaClose = (prev.open + prev.high + prev.low + prev.close) / 4;
+            const haOpen = (prevHaOpen + prevHaClose) / 2;
+            const haClose = (c.open + c.high + c.low + c.close) / 4;
+            const haHigh = Math.max(c.high, haOpen, haClose);
+            const haLow = Math.min(c.low, haOpen, haClose);
+
+            // Xác định màu (bull/bear) dựa trên HA
+            const isBull = haClose > haOpen;
+
+            candleSeriesRef.current.update({
+              time: toGMT7(candle.time),
+              open: haOpen,
+              close: haClose,
+              high: haHigh,
+              low: haLow,
+              color: isBull ? '#ffd700' : '#ff4444',
+              borderColor: isBull ? '#ffd700' : '#ff4444',
+              wickColor: isBull ? '#ffd700' : '#ff4444',
+            } as any);
+          }
+
+          setLivePrice(candle.close);
 
           // Khi nến ĐÓNG -> recompute tín hiệu & gửi Telegram nếu bật
           if (candle.isClosed && tgEnabledRef.current) {
             const pivotNow = calculatePivot(dailyRef.current);
             const adrNow = calculateADR(dailyRef.current);
             const craziiNow = calculateAll(candlesRef.current, {
-              ...settings, dailyRange: adrNow, pivot: pivotNow,
+              ...settings, dailyRange: adrNow, pivot: pivotNow, minConfidence: 0,
             });
             notifyEnhancedSignals(symbol, timeframe, craziiNow.enhancedSignals).then((n) => {
               if (n > 0) setTgCount((c) => c + n);

@@ -84,28 +84,40 @@ export function calculateKTR(
   multiplier = 1.0,
   dailyRange: number | null = null
 ): KTRData[] {
-  const period = 14;
-  const highs = candles.map((c) => c.high);
-  const lows = candles.map((c) => c.low);
-  const closes = candles.map((c) => c.close);
-  const atrValues = atr(highs, lows, closes, period);
-
-  // Giữ cố định base (OP) và unit (biên độ) trong suốt phiên
+  // KTR unit phải dùng biên độ NGÀY (Daily ATR/ADR) chia 3.
+  // KHÔNG dùng ATR intraday vì lúc 5h sáng ATR rất nhỏ → KTR gom cục.
+  // Verified từ CRAZII thật: OP=4018.59, KTR+1=4034.66, unit=16.07 ≈ ADR(48)/3.
+  
   let sessionBase: number | null = null;
   let sessionUnit: number | null = null;
   let lastOP: number | null = null;
 
+  // Fallback: nếu không có dailyRange, tính từ data intraday
+  // bằng cách lấy range lớn nhất trong ~288 nến (=1 ngày trên 5m)
+  let fallbackUnit: number | null = null;
+  if (dailyRange === null || dailyRange <= 0) {
+    // Ước tính biên độ ngày từ data intraday: max(high)-min(low) trong 288 nến gần nhất
+    const lookback = Math.min(candles.length, 288);
+    if (lookback > 50) {
+      const slice = candles.slice(-lookback);
+      const hi = Math.max(...slice.map(c => c.high));
+      const lo = Math.min(...slice.map(c => c.low));
+      fallbackUnit = (hi - lo) / 3;
+    }
+  }
+
   return candles.map((candle, i) => {
     const op = ops[i]?.op ?? null;
 
-    // Phát hiện phiên mới: OP thay đổi -> khóa lại base & unit của phiên
     if (op !== null && op !== lastOP) {
       lastOP = op;
       sessionBase = op;
-      // KTR unit = ATR(14) trên timeframe hiện tại tại thời điểm mở phiên.
-      // Verified: CRAZII thật dùng khoảng cách ≈ ATR(14) 5m (~16 pip cho XAU).
-      // dailyRange/3 cho kết quả quá lớn (~28 pip), không khớp.
-      sessionUnit = atrValues[i] ?? null;
+      // Dùng Daily Range / 3 làm unit (khớp CRAZII thật)
+      if (dailyRange !== null && dailyRange > 0) {
+        sessionUnit = dailyRange / 3;
+      } else {
+        sessionUnit = fallbackUnit;
+      }
     }
 
     if (sessionBase === null || sessionUnit === null) {
