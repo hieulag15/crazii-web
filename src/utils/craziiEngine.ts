@@ -102,13 +102,10 @@ export function calculateKTR(
     if (op !== null && op !== lastOP) {
       lastOP = op;
       sessionBase = op;
-      // Ưu tiên dùng biên độ NGÀY (ADR) chia 3 làm 1 bước KTR.
-      // Nếu không có, fallback về ATR nội phiên tại thời điểm mở phiên.
-      if (dailyRange !== null && dailyRange > 0) {
-        sessionUnit = dailyRange / 3;
-      } else {
-        sessionUnit = atrValues[i] ?? null;
-      }
+      // KTR unit = ATR(14) trên timeframe hiện tại tại thời điểm mở phiên.
+      // Verified: CRAZII thật dùng khoảng cách ≈ ATR(14) 5m (~16 pip cho XAU).
+      // dailyRange/3 cho kết quả quá lớn (~28 pip), không khớp.
+      sessionUnit = atrValues[i] ?? null;
     }
 
     if (sessionBase === null || sessionUnit === null) {
