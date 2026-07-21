@@ -1,9 +1,9 @@
 /**
  * Dev API Server - chạy port 3001, handle /api/* requests
  * Dùng tsx để chạy trực tiếp TypeScript.
+ * Env vars are loaded via --env-file flag.
  */
 
-import 'dotenv/config';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 
@@ -15,11 +15,14 @@ const ROUTES: Record<string, string> = {
   '/api/auth/login': './api/auth/login.ts',
   '/api/auth/me': './api/auth/me.ts',
   '/api/check-signals': './api/check-signals.ts',
+  '/api/kl-signals': './api/kl-signals.ts',
+  '/api/scan': './api/scan.ts',
   '/api/test-telegram': './api/test-telegram.ts',
   '/api/notify': './api/notify.ts',
 };
 
 async function loadHandler(path: string): Promise<((req: any, res: any) => Promise<void>) | null> {
+  if (!path) return null;
   try {
     const mod = await import(path);
     return mod.default;

@@ -1,727 +1,351 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
-interface AcademyPageProps {
-  onBack: () => void;
-}
+interface AcademyPageProps { onBack: () => void; }
+type TopicId = 'overview' | 'op' | 'candles' | 'ksi_kcx' | 'ktr' | 'diamond' | 'entry' | 'tp_sl';
 
-type TopicId = 'op' | 'candles' | 'mlp_ktr' | 'sharks' | 'diamonds';
+const TOPICS: { id: TopicId; icon: string; label: string }[] = [
+  { id: 'overview', icon: '🎯', label: 'Tổng quan hệ thống' },
+  { id: 'op', icon: '🔑', label: 'Luật OP (Quan trọng nhất)' },
+  { id: 'candles', icon: '🕯️', label: 'Nến Vàng/Đỏ & Zebra' },
+  { id: 'ksi_kcx', icon: '🦈', label: 'KSI & KCX (Dòng tiền)' },
+  { id: 'ktr', icon: '📊', label: 'KTR & MLP (Chốt lời)' },
+  { id: 'diamond', icon: '💎', label: 'Kim Cương & EMA200' },
+  { id: 'entry', icon: '⚡', label: 'Cách vào lệnh' },
+  { id: 'tp_sl', icon: '🎯', label: 'Cách đặt TP/SL' },
+];
 
 export default function AcademyPage({ onBack }: AcademyPageProps) {
-  const [activeTopic, setActiveTopic] = useState<TopicId>('op');
-
-  // Interactive Signal Checker States
-  const [chkAboveOP, setChkAboveOP] = useState<boolean>(true);
-  const [chkCandle, setChkCandle] = useState<'yellow' | 'red' | 'zebra'>('yellow');
-  const [chkKSI, setChkKSI] = useState<'green' | 'red' | 'neutral'>('green');
-  const [chkKCX, setChkKCX] = useState<'green' | 'black' | 'blue' | 'neutral'>('black');
-  const [chkAboveMLP, setChkAboveMLP] = useState<boolean>(true);
-  const [chkAbovePivot, setChkAbovePivot] = useState<boolean>(true);
-  const [chkAboveEMA200, setChkAboveEMA200] = useState<boolean>(true);
-  const [chkDMLBreak, setChkDMLBreak] = useState<boolean>(false);
-  const [chkFVGConfluence, setChkFVGConfluence] = useState<boolean>(false);
-
-  // Score Calculation logic
-  const [score, setScore] = useState<number>(0);
-  const [verdict, setVerdict] = useState<{ text: string; color: string; desc: string }>({ text: '', color: '', desc: '' });
-
-  useEffect(() => {
-    let s = 0;
-    const details: string[] = [];
-
-    // OP Rule (25 pts)
-    if (chkAboveOP && chkCandle === 'yellow') {
-      s += 25;
-      details.push('+25: Thuận OP (Giá TRÊN OP + Nến VÀNG)');
-    } else if (!chkAboveOP && chkCandle === 'red') {
-      s += 25;
-      details.push('+25: Thuận OP (Giá DƯỚI OP + Nến ĐỎ)');
-    } else {
-      // Counter-trend penalty
-      s -= 15;
-      details.push('-15: Ngược luật OP! (Tuyệt đối không nên trade)');
-    }
-
-    // MLP Rule (12 pts)
-    if (chkAboveOP === chkAboveMLP) {
-      s += 12;
-      details.push('+12: Đồng thuận MLP');
-    }
-
-    // KSI Shark (15 pts)
-    if (chkCandle === 'yellow' && chkKSI === 'green') {
-      s += 15;
-      details.push('+15: Cá mập gom hàng (KSI Xanh)');
-    } else if (chkCandle === 'red' && chkKSI === 'red') {
-      s += 15;
-      details.push('+15: Cá mập xả hàng (KSI Đỏ)');
-    }
-
-    // KCX Sentiment (10 pts)
-    if (chkCandle === 'yellow' && chkKCX === 'black') {
-      s += 10;
-      details.push('+10: Nhỏ lẻ đang mua đuổi (KCX Đen)');
-    } else if (chkCandle === 'yellow' && chkKCX === 'green') {
-      s += 12; // Flashing Green exhaustion is great for reversal
-      details.push('+12: Nhỏ lẻ cạn lực bán (KCX Xanh lá)');
-    } else if (chkCandle === 'red' && chkKCX === 'blue') {
-      s += 10;
-      details.push('+10: Nhỏ lẻ đang bán tháo (KCX Xanh dương)');
-    }
-
-    // Pivot (10 pts)
-    if (chkAboveOP === chkAbovePivot) {
-      s += 10;
-      details.push('+10: Thuận hướng Pivot');
-    }
-
-    // WMA/EMA200 (10 pts)
-    if (chkAboveOP === chkAboveEMA200) {
-      s += 10;
-      details.push('+10: Thuận xu hướng dài hạn EMA200');
-    }
-
-    // Diamond Line (DML) / FVG / OB (Remaining confluences)
-    if (chkDMLBreak) {
-      s += 10;
-      details.push('+10: Phá vỡ Diamond Line');
-    }
-    if (chkFVGConfluence) {
-      s += 8;
-      details.push('+8: Hợp lưu vùng FVG/OB');
-    }
-
-    // Zebra penalty
-    if (chkCandle === 'zebra') {
-      s = 30; // Maximum cap or hard reset
-    }
-
-    const finalScore = Math.max(0, Math.min(100, s));
-    setScore(finalScore);
-
-    // Determine diagnosis
-    if (chkCandle === 'zebra') {
-      setVerdict({
-        text: 'NẾN ZEBRA (ĐỨNG NGOÀI)',
-        color: '#f59e0b',
-        desc: 'Thị trường đang nén chặt hoặc đi ngang khó chịu (Zebra / Doji). Hãy kiên nhẫn đứng ngoài quan sát để tránh quét SL.',
-      });
-    } else if (finalScore >= 80) {
-      const type = chkCandle === 'yellow' ? 'BIG BUY' : 'BIG SELL';
-      setVerdict({
-        text: `TÍN HIỆU ĐẸP (${type})`,
-        color: '#22c55e',
-        desc: `Độ tin cậy cực cao (${finalScore}%). Các điều kiện hội tụ OP, KSI và KCX đồng thuận hoàn hảo. Có thể cân nhắc mở vị thế giao dịch theo quy tắc quản lý vốn R:R gợi ý.`,
-      });
-    } else if (finalScore >= 60) {
-      const type = chkCandle === 'yellow' ? 'BUY' : 'SELL';
-      setVerdict({
-        text: `TÍN HIỆU NHẸ (${type})`,
-        color: '#3b82f6',
-        desc: `Độ tin cậy trung bình (${finalScore}%). Đủ điều kiện tối thiểu nhưng thiếu một vài yếu tố hợp lưu mạnh. Thích hợp cho lệnh scalp nhỏ.`,
-      });
-    } else {
-      setVerdict({
-        text: 'TÍN HIỆU RỦI RO CAO (BỎ QUA)',
-        color: '#ef4444',
-        desc: `Điểm số quá thấp (${finalScore}%). Tín hiệu đi ngược hướng OP hoặc thiếu dòng tiền thông minh đồng thuận. Tuyệt đối không giao dịch.`,
-      });
-    }
-  }, [chkAboveOP, chkCandle, chkKSI, chkKCX, chkAboveMLP, chkAbovePivot, chkAboveEMA200, chkDMLBreak, chkFVGConfluence]);
-
+  const [activeTopic, setActiveTopic] = useState<TopicId>('overview');
   return (
-    <div style={styles.container}>
-      {/* Sticky Header */}
-      <div style={styles.header}>
-        <button onClick={onBack} style={styles.backBtn}>← Quay lại chart</button>
-        <h2 style={styles.title}>📖 Học Viện Kiến Thức CRAZII</h2>
-      </div>
-
-      <div style={styles.content}>
-        {/* Left Column: Topics and Theory */}
-        <div style={styles.leftCol}>
-          <div style={styles.topicTabs}>
-            <button
-              onClick={() => setActiveTopic('op')}
-              style={{ ...styles.tab, ...(activeTopic === 'op' ? styles.tabActive : {}) }}
-            >
-              🔑 1. Nguyên Tắc OP (Quyết định hướng)
+    <div style={S.container}>
+      <header style={S.header}>
+        <button onClick={onBack} style={S.backBtn}>← Quay lại Chart</button>
+        <h2 style={S.title}>📖 Học Viện CRAZII Trading</h2>
+        <span style={S.subtitle}>Kiến thức nền tảng &amp; Logic hệ thống</span>
+      </header>
+      <div style={S.body}>
+        <nav style={S.sidebar}>
+          {TOPICS.map(t => (
+            <button key={t.id} onClick={() => setActiveTopic(t.id)}
+              style={{ ...S.navItem, ...(activeTopic === t.id ? S.navItemActive : {}) }}>
+              <span>{t.icon}</span> {t.label}
             </button>
-            <button
-              onClick={() => setActiveTopic('candles')}
-              style={{ ...styles.tab, ...(activeTopic === 'candles' ? styles.tabActive : {}) }}
-            >
-              🎨 2. Màu Nến Crazii (Điểm kích hoạt)
-            </button>
-            <button
-              onClick={() => setActiveTopic('mlp_ktr')}
-              style={{ ...styles.tab, ...(activeTopic === 'mlp_ktr' ? styles.tabActive : {}) }}
-            >
-              📈 3. MLP & KTR (Mục tiêu & Động lượng)
-            </button>
-            <button
-              onClick={() => setActiveTopic('sharks')}
-              style={{ ...styles.tab, ...(activeTopic === 'sharks' ? styles.tabActive : {}) }}
-            >
-              🦈 4. KSI & KCX (Dòng tiền Cá mập)
-            </button>
-            <button
-              onClick={() => setActiveTopic('diamonds')}
-              style={{ ...styles.tab, ...(activeTopic === 'diamonds' ? styles.tabActive : {}) }}
-            >
-              💎 5. Kim Cương & EMA200
-            </button>
-          </div>
-
-          {/* Theory card content */}
-          <div style={styles.theoryCard}>
-            {activeTopic === 'op' && (
-              <div>
-                <h3 style={styles.theoryTitle}>Nguyên Tắc OP (Opening Price) — Hạt Nhân Quyết Định Xu Hướng</h3>
-                <blockquote style={styles.quote}>
-                  "Sai lầm lớn nhất của người mới là mở biểu đồ lên và phân vân không biết hôm nay nên Buy hay Sell. Thay vì dùng hàng tá chỉ báo rối rắm, CRAZII dùng đúng một điểm neo: Đường OP."
-                </blockquote>
-                <p style={styles.para}>
-                  <strong>Định nghĩa:</strong> OP là giá mở cửa lúc bắt đầu ngày giao dịch mới (quy chuẩn 5h sáng giờ Việt Nam / GMT+7). Đây được ví như "Mỏ neo định hướng giao dịch".
-                </p>
-                <div style={styles.ruleBox}>
-                  <h4 style={{ color: '#ffd700', marginBottom: '8px' }}>Quy tắc bất di bất dịch:</h4>
-                  <ul style={styles.ul}>
-                    <li>📈 <strong>Giá ở TRÊN đường OP:</strong> Thị trường đang tăng giá, phe Mua làm chủ. Chỉ ưu tiên tìm kiếm lệnh <strong>BUY (Long)</strong>.</li>
-                    <li>📉 <strong>Giá ở DƯỚI đường OP:</strong> Thị trường đang giảm giá, phe Bán làm chủ. Chỉ ưu tiên tìm kiếm lệnh <strong>SELL (Short)</strong>.</li>
-                  </ul>
-                </div>
-                <p style={styles.para}>
-                  <strong>Ý nghĩa:</strong> Bằng cách tôn trọng giá mở cửa OP, bạn luôn đi đúng hướng cùng dòng tiền của các tổ chức lớn, hạn chế tối đa việc đi ngược xu hướng.
-                </p>
-              </div>
-            )}
-
-            {activeTopic === 'candles' && (
-              <div>
-                <h3 style={styles.theoryTitle}>Màu Nến Crazii (Điểm kích hoạt lệnh)</h3>
-                <p style={styles.para}>
-                  Hệ thống CRAZII loại bỏ các nhiễu của nến thường bằng cách tích hợp Heiken Ashi Smooth và thuật toán cấu trúc toán học độc quyền để chuyển đổi thành hai màu sắc trực quan:
-                </p>
-                <div style={styles.candleColors}>
-                  <div style={styles.candleSampleYellow}>■ Nến Vàng: Thể hiện lực mua áp đảo.</div>
-                  <div style={styles.candleSampleRed}>■ Nến Đỏ: Thể hiện lực bán áp đảo.</div>
-                </div>
-                <div style={styles.ruleBox}>
-                  <h4 style={{ color: '#ffd700', marginBottom: '8px' }}>Tín hiệu kích hoạt (CCRY và CCYR):</h4>
-                  <ul style={styles.ul}>
-                    <li>🟢 <strong>CCRY (Đỏ sang Vàng):</strong> Giá nến đỏ đổi màu sang nến vàng. Chỉ có giá trị kích hoạt BUY khi <strong>giá đang nằm trên OP</strong>.</li>
-                    <li>🔴 <strong>CCYR (Vàng sang Đỏ):</strong> Giá nến vàng đổi màu sang nến đỏ. Chỉ có giá trị kích hoạt SELL khi <strong>giá đang nằm dưới OP</strong>.</li>
-                    <li>⚠️ <strong>Zebra (Nến vằn dưa hấu):</strong> Các nến đỏ và vàng đan xen liên tục thể hiện sự giằng co lưỡng lự. <strong>Hãy đứng ngoài thị trường</strong> vì đây là dấu hiệu sideway nén mạnh.</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {activeTopic === 'mlp_ktr' && (
-              <div>
-                <h3 style={styles.theoryTitle}>MLP & KTR — Mục tiêu chốt lời & Xác nhận động lượng</h3>
-                <p style={styles.para}>
-                  <strong>MLP (Mid-Level Price):</strong> Là mức giá trung bình của ngày hôm trước (giữa giá mở cửa OP và giá đóng cửa của phiên trước).
-                </p>
-                <div style={styles.ruleBox}>
-                  <h4 style={{ color: '#ffd700', marginBottom: '8px' }}>Sức mạnh đồng thuận xu hướng:</h4>
-                  <ul style={styles.ul}>
-                    <li>🔥 <strong>Uptrend bền vững:</strong> Khi giá nằm <strong>TRÊN cả OP và MLP</strong>.</li>
-                    <li>❄️ <strong>Downtrend tuyệt đối:</strong> Khi giá nằm <strong>DƯỚI cả OP và MLP</strong>.</li>
-                  </ul>
-                </div>
-
-                <p style={styles.para}>
-                  <strong>KTR (Volatility Statistics / Projected Range):</strong> Là các mốc biên độ biến động được tính toán dựa trên ATR của ngày hôm trước và giữ cố định suốt phiên.
-                </p>
-                <div style={styles.ruleBox}>
-                  <h4 style={{ color: '#ffd700', marginBottom: '8px' }}>Bản đồ chốt lời (TP):</h4>
-                  <ul style={styles.ul}>
-                    <li>🟢 Đối với lệnh BUY: TP1 tại <strong>KTR+1</strong>, TP2 tại <strong>KTR+2</strong>, TP3 tại <strong>KTR+3</strong>.</li>
-                    <li>🔴 Đối với lệnh SELL: TP1 tại <strong>KTR-1</strong>, TP2 tại <strong>KTR-2</strong>, TP3 tại <strong>KTR-3</strong>.</li>
-                    <li><em>Lưu ý: CRAZII khuyên bạn nên chốt lời 70% khối lượng khi giá chạm mốc KTR±1 đầu tiên.</em></li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {activeTopic === 'sharks' && (
-              <div>
-                <h3 style={styles.theoryTitle}>KSI & KCX — Giải mã dòng tiền Cá mập và Sự kiệt sức của Nhỏ lẻ</h3>
-                <p style={styles.para}>
-                  Để tránh bẫy thị trường, hệ thống CRAZII tích hợp 2 chỉ số dòng tiền quan trọng:
-                </p>
-                <div style={styles.metricGrid}>
-                  <div style={styles.metricCard}>
-                    <h4 style={{ color: '#22c55e' }}>🦈 KSI (Shark Money Flow)</h4>
-                    <p style={{ fontSize: '0.8rem', color: '#ccc', marginTop: '6px' }}>
-                      Chỉ số hành động của cá mập.
-                      <br />🟢 <strong>Màu Xanh:</strong> Cá mập đang thu gom hàng (Uu tiên BUY).
-                      <br />🔴 <strong>Màu Đỏ:</strong> Cá mập đang bán xả hàng (Ưu tiên SELL).
-                    </p>
-                  </div>
-                  <div style={styles.metricCard}>
-                    <h4 style={{ color: '#00f0ff' }}>📉 KCX (Retail Sentiment)</h4>
-                    <p style={{ fontSize: '0.8rem', color: '#ccc', marginTop: '6px' }}>
-                      Đo lường tâm lý và sự kiệt sức của đám đông nhỏ lẻ.
-                      <br />⚫ <strong>Màu Đen:</strong> Nhỏ lẻ đang ham hố MUA đuổi.
-                      <br />🔵 <strong>Màu Xanh Dương:</strong> Nhỏ lẻ đang hoảng loạn BÁN tháo.
-                      <br />🟢 <strong>Màu Xanh Lá Nhấp Nháy:</strong> Nhỏ lẻ đã hoàn toàn CẠN LỰC BÁN (Thời điểm vàng để cá mập kích hoạt đảo chiều tăng giá).
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTopic === 'diamonds' && (
-              <div>
-                <h3 style={styles.theoryTitle}>Kim Cương (Diamond Signal) & EMA200</h3>
-                <p style={styles.para}>
-                  <strong>Chỉ báo Kim cương:</strong> Xuất hiện khi dòng tiền thông minh tạo một áp lực cực hạn tại một vùng giá nén. Khi biểu tượng kim cương xuất hiện, nó sẽ vẽ ra một đường gọi là <strong>DML (Diamond Line)</strong> tại giá đóng cửa của nến đó.
-                </p>
-                <div style={styles.ruleBox}>
-                  <h4 style={{ color: '#ffd700', marginBottom: '8px' }}>Cách giao dịch theo Diamond Line:</h4>
-                  <ul style={styles.ul}>
-                    <li>💎 <strong>Tín hiệu Buy cực mạnh:</strong> Nến vàng đóng cửa vượt TRÊN đường Diamond Line (DML) đồng thời giá nằm trên OP.</li>
-                    <li>💎 <strong>Tín hiệu Sell cực mạnh:</strong> Nến đỏ đóng cửa thủng DƯỚI đường Diamond Line (DML) đồng thời giá nằm dưới OP.</li>
-                  </ul>
-                </div>
-                <p style={styles.para}>
-                  <strong>EMA200 (WMA/EMA200 Daily):</strong> Được sử dụng làm đường xu hướng dài hạn. Giao dịch thuận xu hướng dài hạn bằng cách so sánh giá với EMA200 sẽ cộng thêm điểm cộng (Confidence) rất lớn cho tín hiệu của bạn.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Interactive Signal Checker */}
-        <div style={styles.rightCol}>
-          <div style={styles.checkerCard}>
-            <h3 style={styles.checkerTitle}>⚡ Trình Kiểm Tra Tín Hiệu (Confluence Checker)</h3>
-            <p style={{ fontSize: '0.8rem', color: '#8892b0', marginBottom: '1rem' }}>
-              Hãy nhập các điều kiện thực tế trên chart để kiểm tra xem tín hiệu đó đúng hay sai và chấm điểm độ tin cậy.
-            </p>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>1. Vị trí giá so với đường OP:</label>
-              <div style={styles.btnGroup}>
-                <button
-                  onClick={() => setChkAboveOP(true)}
-                  style={{ ...styles.choiceBtn, ...(chkAboveOP ? styles.choiceBtnActiveBuy : {}) }}
-                >
-                  Giá TRÊN OP (Ưu tiên Buy)
-                </button>
-                <button
-                  onClick={() => setChkAboveOP(false)}
-                  style={{ ...styles.choiceBtn, ...(!chkAboveOP ? styles.choiceBtnActiveSell : {}) }}
-                >
-                  Giá DƯỚI OP (Ưu tiên Sell)
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>2. Trạng thái Màu nến Crazii:</label>
-              <div style={styles.btnGroup}>
-                <button
-                  onClick={() => setChkCandle('yellow')}
-                  style={{ ...styles.choiceBtn, ...(chkCandle === 'yellow' ? styles.choiceBtnActiveBuy : {}) }}
-                >
-                  Nến Vàng 🟡
-                </button>
-                <button
-                  onClick={() => setChkCandle('red')}
-                  style={{ ...styles.choiceBtn, ...(chkCandle === 'red' ? styles.choiceBtnActiveSell : {}) }}
-                >
-                  Nến Đỏ 🔴
-                </button>
-                <button
-                  onClick={() => setChkCandle('zebra')}
-                  style={{ ...styles.choiceBtn, ...(chkCandle === 'zebra' ? styles.choiceBtnActiveZebra : {}) }}
-                >
-                  Nến Vằn (Zebra) 🦓
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>3. Dòng tiền cá mập (KSI):</label>
-              <div style={styles.btnGroup}>
-                <button
-                  onClick={() => setChkKSI('green')}
-                  style={{ ...styles.choiceBtn, ...(chkKSI === 'green' ? styles.choiceBtnActiveBuy : {}) }}
-                >
-                  Xanh (Gom) 🟢
-                </button>
-                <button
-                  onClick={() => setChkKSI('red')}
-                  style={{ ...styles.choiceBtn, ...(chkKSI === 'red' ? styles.choiceBtnActiveSell : {}) }}
-                >
-                  Đỏ (Xả) 🔴
-                </button>
-                <button
-                  onClick={() => setChkKSI('neutral')}
-                  style={{ ...styles.choiceBtn, ...(chkKSI === 'neutral' ? styles.choiceBtnActiveNeutral : {}) }}
-                >
-                  Không rõ ⚪
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>4. Chỉ báo tâm lý nhỏ lẻ (KCX):</label>
-              <div style={styles.btnGroup}>
-                <button
-                  onClick={() => setChkKCX('green')}
-                  style={{ ...styles.choiceBtn, ...(chkKCX === 'green' ? styles.choiceBtnActiveBuy : {}) }}
-                >
-                  Xanh lá (Kiệt sức bán)
-                </button>
-                <button
-                  onClick={() => setChkKCX('black')}
-                  style={{ ...styles.choiceBtn, ...(chkKCX === 'black' ? styles.choiceBtnActiveNeutral : {}) }}
-                >
-                  Đen (Đang mua)
-                </button>
-                <button
-                  onClick={() => setChkKCX('blue')}
-                  style={{ ...styles.choiceBtn, ...(chkKCX === 'blue' ? styles.choiceBtnActiveSell : {}) }}
-                >
-                  Xanh dương (Đang bán)
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.checkboxSection}>
-              <h4 style={{ color: '#ffd700', fontSize: '0.85rem', marginBottom: '8px' }}>Các hợp lưu nâng cao khác:</h4>
-              <label style={styles.chkLabel}>
-                <input type="checkbox" checked={chkAboveMLP} onChange={(e) => setChkAboveMLP(e.target.checked)} style={styles.chk} />
-                Đồng thuận với MLP (Giá ở cùng phía OP và MLP)
-              </label>
-              <label style={styles.chkLabel}>
-                <input type="checkbox" checked={chkAbovePivot} onChange={(e) => setChkAbovePivot(e.target.checked)} style={styles.chk} />
-                Đồng thuận Pivot kháng cự/hỗ trợ ngày
-              </label>
-              <label style={styles.chkLabel}>
-                <input type="checkbox" checked={chkAboveEMA200} onChange={(e) => setChkAboveEMA200(e.target.checked)} style={styles.chk} />
-                Đồng thuận xu hướng dài hạn EMA200
-              </label>
-              <label style={styles.chkLabel}>
-                <input type="checkbox" checked={chkDMLBreak} onChange={(e) => setChkDMLBreak(e.target.checked)} style={styles.chk} />
-                Phá vỡ vùng Kim Cương (DML Line)
-              </label>
-              <label style={styles.chkLabel}>
-                <input type="checkbox" checked={chkFVGConfluence} onChange={(e) => setChkFVGConfluence(e.target.checked)} style={styles.chk} />
-                Nằm tại vùng phản ứng FVG hoặc Order Block (ICT)
-              </label>
-            </div>
-
-            {/* Diagnostic Output */}
-            <div style={{ ...styles.verdictCard, borderColor: verdict.color }}>
-              <div style={styles.verdictHeader}>
-                <span style={styles.verdictTitle}>KẾT QUẢ ĐÁNH GIÁ:</span>
-                <span style={{ ...styles.verdictBadge, color: verdict.color, borderColor: verdict.color }}>
-                  {verdict.text}
-                </span>
-              </div>
-              <div style={styles.scoreWrap}>
-                <span style={styles.scoreLabel}>Độ tin cậy (Confidence):</span>
-                <span style={{ ...styles.scoreVal, color: verdict.color }}>{score}%</span>
-              </div>
-              <p style={styles.verdictDesc}>{verdict.desc}</p>
-            </div>
-          </div>
-        </div>
+          ))}
+        </nav>
+        <main style={S.main}>
+          {renderTopic(activeTopic)}
+        </main>
       </div>
     </div>
   );
 }
 
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    height: '100vh',
-    background: '#060d1a',
-    color: '#e0e0e0',
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-    overflow: 'hidden',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '12px 24px',
-    background: '#0a1628',
-    borderBottom: '1px solid #1e2d4a',
-    flexShrink: 0,
-    gap: '20px',
-  },
-  backBtn: {
-    padding: '6px 12px',
-    background: '#1a2744',
-    border: '1px solid #2a3f5f',
-    borderRadius: '6px',
-    color: '#00f0ff',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-    fontWeight: 600,
-    transition: 'all 0.2s',
-  },
-  title: {
-    fontSize: '1.2rem',
-    fontWeight: 800,
-    color: '#ffd700',
-  },
-  content: {
-    display: 'flex',
-    flex: 1,
-    padding: '24px',
-    gap: '24px',
-    overflowY: 'auto' as const,
-    minHeight: 0,
-  },
-  leftCol: {
-    flex: 1.2,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '16px',
-  },
-  rightCol: {
-    flex: 1,
-    overflowY: 'auto' as const,
-  },
-  topicTabs: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '8px',
-    background: '#0a1628',
-    padding: '12px',
-    borderRadius: '12px',
-    border: '1px solid #1e2d4a',
-  },
-  tab: {
-    padding: '10px 16px',
-    background: 'transparent',
-    border: '1px solid transparent',
-    borderRadius: '8px',
-    color: '#8892b0',
-    textAlign: 'left' as const,
-    cursor: 'pointer',
-    fontSize: '0.9rem',
-    fontWeight: 600,
-    transition: 'all 0.2s',
-  },
-  tabActive: {
-    background: '#1a2744',
-    borderColor: '#2a3f5f',
-    color: '#ffd700',
-  },
-  theoryCard: {
-    background: '#0a1628',
-    border: '1px solid #1e2d4a',
-    borderRadius: '12px',
-    padding: '24px',
-    flex: 1,
-    overflowY: 'auto' as const,
-    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-  },
-  theoryTitle: {
-    fontSize: '1.2rem',
-    color: '#ffd700',
-    marginBottom: '12px',
-    fontWeight: 700,
-  },
-  quote: {
-    fontStyle: 'italic',
-    color: '#8892b0',
-    borderLeft: '4px solid #ffd700',
-    paddingLeft: '16px',
-    margin: '16px 0',
-    lineHeight: '1.6',
-  },
-  para: {
-    fontSize: '0.9rem',
-    lineHeight: '1.6',
-    color: '#ccc',
-    marginBottom: '12px',
-  },
-  ruleBox: {
-    background: '#132238',
-    border: '1px solid #1e2d4a',
-    borderRadius: '8px',
-    padding: '16px',
-    margin: '16px 0',
-  },
-  ul: {
-    paddingLeft: '20px',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '8px',
-    fontSize: '0.88rem',
-  },
-  candleColors: {
-    display: 'flex',
-    gap: '16px',
-    margin: '16px 0',
-  },
-  candleSampleYellow: {
-    flex: 1,
-    background: 'rgba(255, 215, 0, 0.1)',
-    border: '1px solid #ffd700',
-    padding: '12px',
-    borderRadius: '8px',
-    color: '#ffd700',
-    fontSize: '0.85rem',
-    fontWeight: 600,
-    textAlign: 'center' as const,
-  },
-  candleSampleRed: {
-    flex: 1,
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid #ef4444',
-    padding: '12px',
-    borderRadius: '8px',
-    color: '#ef4444',
-    fontSize: '0.85rem',
-    fontWeight: 600,
-    textAlign: 'center' as const,
-  },
-  metricGrid: {
-    display: 'flex',
-    gap: '16px',
-    margin: '16px 0',
-  },
-  metricCard: {
-    flex: 1,
-    background: '#0d1b2a',
-    border: '1px solid #1e2d4a',
-    borderRadius: '8px',
-    padding: '16px',
-  },
-  checkerCard: {
-    background: '#0a1628',
-    border: '1px solid #1e2d4a',
-    borderRadius: '12px',
-    padding: '24px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '16px',
-  },
-  checkerTitle: {
-    fontSize: '1.15rem',
-    color: '#ffd700',
-    fontWeight: 700,
-  },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '8px',
-  },
-  label: {
-    fontSize: '0.85rem',
-    color: '#8892b0',
-    fontWeight: 600,
-  },
-  btnGroup: {
-    display: 'flex',
-    gap: '6px',
-  },
-  choiceBtn: {
-    flex: 1,
-    padding: '8px 10px',
-    background: '#132238',
-    border: '1px solid #2a3f5f',
-    borderRadius: '6px',
-    color: '#8892b0',
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    transition: 'all 0.15s',
-  },
-  choiceBtnActiveBuy: {
-    background: 'rgba(34, 197, 94, 0.15)',
-    borderColor: '#22c55e',
-    color: '#22c55e',
-  },
-  choiceBtnActiveSell: {
-    background: 'rgba(239, 68, 68, 0.15)',
-    borderColor: '#ef4444',
-    color: '#ef4444',
-  },
-  choiceBtnActiveZebra: {
-    background: 'rgba(245, 158, 11, 0.15)',
-    borderColor: '#f59e0b',
-    color: '#f59e0b',
-  },
-  choiceBtnActiveNeutral: {
-    background: 'rgba(255, 255, 255, 0.08)',
-    borderColor: '#888',
-    color: '#e0e0e0',
-  },
-  checkboxSection: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '6px',
-    borderTop: '1px solid #1e2d4a',
-    paddingTop: '16px',
-  },
-  chkLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    fontSize: '0.8rem',
-    color: '#ccc',
-    cursor: 'pointer',
-    padding: '4px 0',
-  },
-  chk: {
-    width: '16px',
-    height: '16px',
-    accentColor: '#ffd700',
-  },
-  verdictCard: {
-    marginTop: '8px',
-    border: '1px dashed',
-    borderRadius: '10px',
-    padding: '16px',
-    background: 'rgba(0,0,0,0.2)',
-  },
-  verdictHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '8px',
-  },
-  verdictTitle: {
-    fontSize: '0.8rem',
-    fontWeight: 700,
-    color: '#8892b0',
-  },
-  verdictBadge: {
-    fontSize: '0.8rem',
-    fontWeight: 800,
-    padding: '2px 8px',
-    border: '1px solid',
-    borderRadius: '4px',
-  },
-  scoreWrap: {
-    display: 'flex',
-    alignItems: 'baseline',
-    gap: '8px',
-    marginBottom: '10px',
-  },
-  scoreLabel: {
-    fontSize: '0.85rem',
-    color: '#e0e0e0',
-  },
-  scoreVal: {
-    fontSize: '1.4rem',
-    fontWeight: 800,
-  },
-  verdictDesc: {
-    fontSize: '0.82rem',
-    lineHeight: '1.5',
-    color: '#bbb',
-  },
+function renderTopic(id: TopicId) {
+  switch (id) {
+    case 'overview': return <Overview />;
+    case 'op': return <OpSection />;
+    case 'candles': return <CandlesSection />;
+    case 'ksi_kcx': return <KsiKcxSection />;
+    case 'ktr': return <KtrSection />;
+    case 'diamond': return <DiamondSection />;
+    case 'entry': return <EntrySection />;
+    case 'tp_sl': return <TpSlSection />;
+  }
+}
+
+function Overview() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🎯 Tổng Quan Hệ Thống CRAZII</h3>
+      <p style={S.p}>CRAZII Trading System là hệ thống giao dịch dựa trên <strong>dòng tiền thông minh</strong> (Smart Money) kết hợp quy tắc quản lý rủi ro nghiêm ngặt. Hệ thống giúp trader loại bỏ cảm xúc, đưa ra quyết định dựa trên dữ liệu khách quan.</p>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Các thành phần cốt lõi:</h4>
+        <div style={S.grid2}>
+          <div style={S.miniCard}><span style={{color:'#fbbf24'}}>🔑 OP</span><br/><small>Xác định hướng BUY/SELL duy nhất trong ngày (⭐⭐⭐⭐⭐)</small></div>
+          <div style={S.miniCard}><span style={{color:'#fbbf24'}}>🕯️ Nến Vàng/Đỏ</span><br/><small>Điểm kích hoạt vào lệnh (⭐⭐⭐⭐)</small></div>
+          <div style={S.miniCard}><span style={{color:'#22c55e'}}>🦈 KSI</span><br/><small>Dòng tiền cá mập gom/xả (⭐⭐⭐⭐)</small></div>
+          <div style={S.miniCard}><span style={{color:'#06b6d4'}}>📉 KCX</span><br/><small>Tâm lý & kiệt sức nhỏ lẻ (⭐⭐⭐)</small></div>
+          <div style={S.miniCard}><span style={{color:'#22c55e'}}>📊 KTR</span><br/><small>Mục tiêu chốt lời trong ngày (⭐⭐⭐)</small></div>
+          <div style={S.miniCard}><span style={{color:'#a855f7'}}>📐 MLP</span><br/><small>Xác nhận đồng thuận xu hướng (⭐⭐⭐⭐)</small></div>
+          <div style={S.miniCard}><span style={{color:'#ec4899'}}>🔄 PIVOT</span><br/><small>Hỗ trợ/kháng cự phiên trước (⭐⭐⭐⭐⭐)</small></div>
+          <div style={S.miniCard}><span style={{color:'#06b6d4'}}>💎 Kim Cương</span><br/><small>Tín hiệu đảo chiều cực mạnh (⭐⭐⭐⭐)</small></div>
+        </div>
+      </div>
+      <div style={S.warningBox}><strong>⚠️ Nguyên tắc vàng:</strong> Luôn tuân thủ Luật OP trước tất cả. Không có chỉ báo nào override được quy tắc OP.</div>
+    </article>
+  );
+}
+
+function OpSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🔑 Luật OP — Hạt Nhân Quyết Định Xu Hướng</h3>
+      <blockquote style={S.quote}>"Sai lầm lớn nhất của người mới là mở chart lên và phân vân không biết hôm nay nên Buy hay Sell. CRAZII dùng đúng một điểm neo: Đường OP."</blockquote>
+      <p style={S.p}><strong>Định nghĩa:</strong> OP (Opening Price) là giá mở cửa lúc 5h sáng (GMT+7). Đây là "mỏ neo định hướng giao dịch" cho cả ngày.</p>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Quy tắc bất di bất dịch:</h4>
+        <ul style={S.ul}>
+          <li>📈 <strong>Giá TRÊN OP:</strong> Phe Mua làm chủ → Chỉ ưu tiên <span style={{color:'#22c55e',fontWeight:'bold'}}>BUY (Long)</span></li>
+          <li>📉 <strong>Giá DƯỚI OP:</strong> Phe Bán làm chủ → Chỉ ưu tiên <span style={{color:'#ef4444',fontWeight:'bold'}}>SELL (Short)</span></li>
+        </ul>
+      </div>
+      <div style={S.tipBox}>
+        <strong>💡 Mẹo thực chiến:</strong> Khi giá cắt qua OP nhiều lần liên tục (sideway quanh OP), đó là dấu hiệu thị trường đang "lưỡng lự". Tốt nhất nên đứng ngoài chờ giá xác nhận rõ ràng phía nào.
+      </div>
+      <p style={S.p}><strong>Ý nghĩa:</strong> Bằng cách tôn trọng OP, bạn luôn đi đúng hướng cùng dòng tiền của tổ chức lớn, hạn chế tối đa việc trade ngược xu hướng — nguyên nhân #1 gây cháy tài khoản.</p>
+    </article>
+  );
+}
+
+function CandlesSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🕯️ Nến Vàng/Đỏ & Zebra — Điểm Kích Hoạt Lệnh</h3>
+      <p style={S.p}>Hệ thống CRAZII dùng Heiken Ashi Smooth để chuyển đổi nến thường thành 2 màu trực quan, loại bỏ nhiễu:</p>
+      <div style={{display:'flex',gap:'12px',marginBottom:'16px'}}>
+        <div style={{flex:1,background:'rgba(251,191,36,0.1)',border:'1px solid #fbbf24',borderRadius:'8px',padding:'12px',textAlign:'center'}}>
+          <div style={{fontSize:'1.5rem'}}>🟡</div>
+          <strong style={{color:'#fbbf24'}}>Nến Vàng</strong>
+          <p style={{fontSize:'0.8rem',color:'#cbd5e1',margin:'4px 0 0'}}>Lực MUA áp đảo</p>
+        </div>
+        <div style={{flex:1,background:'rgba(239,68,68,0.1)',border:'1px solid #ef4444',borderRadius:'8px',padding:'12px',textAlign:'center'}}>
+          <div style={{fontSize:'1.5rem'}}>🔴</div>
+          <strong style={{color:'#ef4444'}}>Nến Đỏ</strong>
+          <p style={{fontSize:'0.8rem',color:'#cbd5e1',margin:'4px 0 0'}}>Lực BÁN áp đảo</p>
+        </div>
+        <div style={{flex:1,background:'rgba(234,179,8,0.1)',border:'1px solid #eab308',borderRadius:'8px',padding:'12px',textAlign:'center'}}>
+          <div style={{fontSize:'1.5rem'}}>🦓</div>
+          <strong style={{color:'#eab308'}}>Nến Zebra</strong>
+          <p style={{fontSize:'0.8rem',color:'#cbd5e1',margin:'4px 0 0'}}>Giằng co → ĐỨNG NGOÀI</p>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Tín hiệu kích hoạt (CCRY / CCYR):</h4>
+        <ul style={S.ul}>
+          <li>🟢 <strong>CCRY (Đỏ → Vàng):</strong> Nến đỏ đổi sang vàng. Chỉ có giá trị BUY khi giá đang <strong>TRÊN OP</strong>.</li>
+          <li>🔴 <strong>CCYR (Vàng → Đỏ):</strong> Nến vàng đổi sang đỏ. Chỉ có giá trị SELL khi giá đang <strong>DƯỚI OP</strong>.</li>
+          <li>⚠️ <strong>Zebra:</strong> Nến đỏ/vàng đan xen liên tục = sideway nén mạnh. <strong>Tuyệt đối đứng ngoài.</strong></li>
+        </ul>
+      </div>
+      <div style={S.tipBox}><strong>💡 Lưu ý:</strong> Cần ít nhất 3-4 cây nến cùng màu liên tiếp tăng/giảm dần để xác nhận xu hướng đủ mạnh trước khi vào lệnh.</div>
+    </article>
+  );
+}
+
+function KsiKcxSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🦈 KSI & KCX — Giải Mã Dòng Tiền Cá Mập</h3>
+      <p style={S.p}>Để tránh bẫy thị trường, CRAZII tích hợp 2 chỉ số dòng tiền quan trọng giúp bạn biết "ai đang làm gì":</p>
+      <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <div style={{flex:1,minWidth:'250px',background:'#0f172a',border:'1px solid #1e2d4a',borderRadius:'10px',padding:'16px'}}>
+          <h4 style={{color:'#22c55e',margin:'0 0 8px'}}>🦈 KSI (Shark Money Flow)</h4>
+          <p style={{fontSize:'0.85rem',color:'#cbd5e1',lineHeight:'1.6'}}>Chỉ số hành động của cá mập (tổ chức lớn):</p>
+          <ul style={S.ul}>
+            <li><span style={{color:'#22c55e'}}>🟢 Xanh:</span> Cá mập đang <strong>gom hàng</strong> → Ưu tiên BUY</li>
+            <li><span style={{color:'#ef4444'}}>🔴 Đỏ:</span> Cá mập đang <strong>xả hàng</strong> → Ưu tiên SELL</li>
+          </ul>
+        </div>
+        <div style={{flex:1,minWidth:'250px',background:'#0f172a',border:'1px solid #1e2d4a',borderRadius:'10px',padding:'16px'}}>
+          <h4 style={{color:'#06b6d4',margin:'0 0 8px'}}>📉 KCX (Retail Sentiment)</h4>
+          <p style={{fontSize:'0.85rem',color:'#cbd5e1',lineHeight:'1.6'}}>Đo tâm lý & sự kiệt sức của đám đông nhỏ lẻ:</p>
+          <ul style={S.ul}>
+            <li><span style={{color:'#1e293b',background:'#e2e8f0',padding:'0 4px',borderRadius:'3px'}}>⚫ Đen:</span> Nhỏ lẻ đang ham hố <strong>MUA đuổi</strong></li>
+            <li><span style={{color:'#3b82f6'}}>🔵 Xanh dương:</span> Nhỏ lẻ đang hoảng loạn <strong>BÁN tháo</strong></li>
+            <li><span style={{color:'#22c55e'}}>🟢 Xanh lá nhấp nháy:</span> Nhỏ lẻ <strong>CẠN LỰC BÁN</strong> — thời điểm vàng cá mập kích hoạt đảo chiều tăng</li>
+          </ul>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Cách kết hợp KSI + KCX:</h4>
+        <ul style={S.ul}>
+          <li><strong>BUY mạnh:</strong> Nến Vàng + Giá trên OP + KSI Xanh + KCX Đen (nhỏ lẻ mua đuổi)</li>
+          <li><strong>SELL mạnh:</strong> Nến Đỏ + Giá dưới OP + KSI Đỏ + KCX Xanh dương (nhỏ lẻ bán tháo)</li>
+          <li><strong>Đảo chiều tăng:</strong> KCX Xanh lá nhấp nháy + KSI chuyển Xanh = cá mập bắt đáy</li>
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+function KtrSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>📊 KTR & MLP — Mục Tiêu Chốt Lời & Xác Nhận Xu Hướng</h3>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>📐 MLP (Mid-Level Price)</h4>
+        <p style={S.p}>Mức giá trung bình giữa OP hôm nay và giá đóng cửa phiên trước. Dùng để xác nhận sức mạnh xu hướng:</p>
+        <ul style={S.ul}>
+          <li>🔥 <strong>Uptrend bền vững:</strong> Giá nằm <strong>TRÊN cả OP và MLP</strong></li>
+          <li>❄️ <strong>Downtrend tuyệt đối:</strong> Giá nằm <strong>DƯỚI cả OP và MLP</strong></li>
+          <li>⚠️ Giá giữa OP và MLP = tín hiệu yếu, cần thêm hợp lưu</li>
+        </ul>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>📊 KTR (Volatility Statistics / Projected Range)</h4>
+        <p style={S.p}>Các mốc biên độ biến động tính từ ATR phiên trước, cố định suốt ngày. Đây là "bản đồ chốt lời":</p>
+        <div style={{display:'flex',gap:'10px',marginBottom:'12px',flexWrap:'wrap'}}>
+          <div style={{flex:1,minWidth:'140px',background:'rgba(34,197,94,0.1)',border:'1px solid #22c55e40',borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+            <div style={{color:'#22c55e',fontWeight:'bold'}}>Lệnh BUY</div>
+            <div style={{fontSize:'0.8rem',color:'#cbd5e1',marginTop:'4px'}}>TP1: KTR+1<br/>TP2: KTR+2<br/>TP3: KTR+3</div>
+          </div>
+          <div style={{flex:1,minWidth:'140px',background:'rgba(239,68,68,0.1)',border:'1px solid #ef444440',borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+            <div style={{color:'#ef4444',fontWeight:'bold'}}>Lệnh SELL</div>
+            <div style={{fontSize:'0.8rem',color:'#cbd5e1',marginTop:'4px'}}>TP1: KTR-1<br/>TP2: KTR-2<br/>TP3: KTR-3</div>
+          </div>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Chiến lược chốt lời theo KTR:</h4>
+        <ul style={S.ul}>
+          <li><strong>KTR±1:</strong> Chốt <strong>70%</strong> khối lượng (tỷ lệ chạm ~80%)</li>
+          <li><strong>KTR±2:</strong> Chốt <strong>20%</strong> khối lượng (tỷ lệ chạm ~60-65%)</li>
+          <li><strong>KTR±3:</strong> Chốt <strong>10%</strong> còn lại (tỷ lệ chạm &gt;40%)</li>
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+function DiamondSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>💎 Kim Cương & EMA200 — Tín Hiệu Đảo Chiều Cực Mạnh</h3>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>💎 Chỉ Báo Kim Cương (Diamond Signal)</h4>
+        <p style={S.p}>Xuất hiện khi dòng tiền thông minh tạo áp lực cực hạn tại vùng giá nén. Khi kim cương xuất hiện, nó vẽ ra đường <strong>DML (Diamond Line)</strong> tại giá đóng cửa nến đó.</p>
+        <ul style={S.ul}>
+          <li>💎 <strong>Buy cực mạnh:</strong> Nến vàng đóng cửa vượt TRÊN DML + Giá trên OP</li>
+          <li>💎 <strong>Sell cực mạnh:</strong> Nến đỏ đóng cửa thủng DƯỚI DML + Giá dưới OP</li>
+          <li>⚠️ <strong>Kim Cương Lồng:</strong> Khi xuất hiện kim cương thứ 2 ngược chiều → chốt lời hoặc kéo SL về entry ngay</li>
+        </ul>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>📐 EMA200 — Xu Hướng Dài Hạn</h4>
+        <p style={S.p}>EMA200 là đường xu hướng dài hạn (Daily). Trade thuận hướng EMA200 giúp tăng confidence đáng kể:</p>
+        <ul style={S.ul}>
+          <li>Giá <strong>TRÊN</strong> EMA200 + BUY = <span style={{color:'#22c55e'}}>+10% confidence</span></li>
+          <li>Giá <strong>DƯỚI</strong> EMA200 + SELL = <span style={{color:'#22c55e'}}>+10% confidence</span></li>
+          <li>Trade ngược EMA200 = <span style={{color:'#ef4444'}}>giảm độ tin cậy, cần nhiều hợp lưu hơn</span></li>
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+function EntrySection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>⚡ Cách Vào Lệnh — Tam Điểm Hội Tụ</h3>
+      <p style={S.p}>Hệ thống CRAZII yêu cầu ít nhất 3 điều kiện hội tụ trước khi vào lệnh. Càng nhiều hợp lưu, tín hiệu càng mạnh.</p>
+      <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <div style={{flex:1,minWidth:'280px',background:'rgba(34,197,94,0.05)',border:'1px solid #22c55e40',borderRadius:'10px',padding:'16px'}}>
+          <h4 style={{color:'#22c55e',margin:'0 0 10px'}}>🟢 Tam Điểm Hội Tụ BUY</h4>
+          <ol style={{...S.ul,paddingLeft:'20px'}}>
+            <li>✅ 3-4 cây nến <strong>VÀNG</strong> tăng dần liên tiếp</li>
+            <li>✅ Giá đóng <strong>TRÊN OP</strong></li>
+            <li>✅ KSI <strong>Xanh</strong> (Cá mập đang gom)</li>
+            <li>✅ KCX <strong>Đen</strong> (Nhỏ lẻ đang mua đuổi)</li>
+          </ol>
+          <div style={{marginTop:'10px',padding:'8px',background:'#0f172a',borderRadius:'6px',fontSize:'0.8rem',color:'#94a3b8'}}>
+            <strong>SL:</strong> Dưới cụm nến vàng (đáy swing)<br/>
+            <strong>TP:</strong> 1R trở lên hoặc gồng tới KTR+1/+2
+          </div>
+        </div>
+        <div style={{flex:1,minWidth:'280px',background:'rgba(239,68,68,0.05)',border:'1px solid #ef444440',borderRadius:'10px',padding:'16px'}}>
+          <h4 style={{color:'#ef4444',margin:'0 0 10px'}}>🔴 Tam Điểm Hội Tụ SELL</h4>
+          <ol style={{...S.ul,paddingLeft:'20px'}}>
+            <li>✅ 3-4 cây nến <strong>ĐỎ</strong> giảm dần liên tiếp</li>
+            <li>✅ Giá đóng <strong>DƯỚI OP</strong></li>
+            <li>✅ KSI <strong>Đỏ</strong> (Cá mập đang xả)</li>
+            <li>✅ KCX <strong>Xanh dương</strong> (Nhỏ lẻ đang bán tháo)</li>
+          </ol>
+          <div style={{marginTop:'10px',padding:'8px',background:'#0f172a',borderRadius:'6px',fontSize:'0.8rem',color:'#94a3b8'}}>
+            <strong>SL:</strong> Trên cụm nến đỏ (đỉnh swing)<br/>
+            <strong>TP:</strong> 1R trở lên hoặc gồng tới KTR-1/-2
+          </div>
+        </div>
+      </div>
+      <div style={S.warningBox}>
+        <strong>⚠️ Tuyệt đối KHÔNG vào lệnh khi:</strong>
+        <ul style={{...S.ul,marginTop:'6px'}}>
+          <li>Nến Zebra (sideway nén) — đứng ngoài chờ</li>
+          <li>Giá ngược luật OP (VD: muốn BUY nhưng giá dưới OP)</li>
+          <li>KSI và màu nến trái chiều nhau</li>
+          <li>Ngoài khung giờ GTH tốt (6-11h, 20-00h)</li>
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+function TpSlSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🎯 Cách Đặt TP/SL — Quản Lý Rủi Ro</h3>
+      <p style={S.p}>Quản lý vốn là yếu tố sống còn. CRAZII áp dụng nguyên tắc R:R (Risk:Reward) nghiêm ngặt để bảo vệ tài khoản.</p>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>📍 Cách đặt Stop Loss (SL):</h4>
+        <ul style={S.ul}>
+          <li><strong>Lệnh BUY:</strong> SL đặt dưới đáy cụm nến vàng (swing low) hoặc dưới Key Level hỗ trợ gần nhất</li>
+          <li><strong>Lệnh SELL:</strong> SL đặt trên đỉnh cụm nến đỏ (swing high) hoặc trên Key Level kháng cự gần nhất</li>
+          <li>Thêm buffer 0.5-1% để tránh bị quét SL do nhiễu</li>
+        </ul>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>🎯 Cách đặt Take Profit (TP):</h4>
+        <ul style={S.ul}>
+          <li><strong>TP1 (Chốt 70%):</strong> Tại KTR±1 — mức an toàn nhất, tỷ lệ chạm ~80%</li>
+          <li><strong>TP2 (Chốt 20%):</strong> Tại KTR±2 — mức vừa phải, tỷ lệ chạm ~60%</li>
+          <li><strong>TP3 (Chốt 10%):</strong> Tại KTR±3 — gồng xa, tỷ lệ chạm ~40%</li>
+          <li>Hoặc dùng Key Level (support/resistance) gần nhất làm TP</li>
+        </ul>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>📐 Nguyên tắc R:R tối thiểu:</h4>
+        <ul style={S.ul}>
+          <li>R:R tối thiểu <strong>1:1.5</strong> mới được vào lệnh</li>
+          <li>R:R lý tưởng: <strong>1:2</strong> trở lên</li>
+          <li>Nếu SL quá rộng mà TP không đạt 1.5R → <strong>bỏ qua tín hiệu</strong></li>
+        </ul>
+      </div>
+      <div style={S.tipBox}>
+        <strong>💡 Mẹo nâng cao:</strong> Khi giá chạm TP1, kéo SL về entry (breakeven) cho phần còn lại. Như vậy bạn đã "free trade" — không thể thua được nữa.
+      </div>
+      <div style={{marginTop:'16px',padding:'12px',background:'#1e293b40',borderRadius:'8px',border:'1px dashed #64748b'}}>
+        <p style={{color:'#94a3b8',fontSize:'0.82rem',margin:0}}>📝 <em>Phần này sẽ được cập nhật thêm kiến thức chi tiết về quản lý vốn, position sizing và trailing stop trong tương lai.</em></p>
+      </div>
+    </article>
+  );
+}
+
+// ============================================================
+// STYLES
+// ============================================================
+const S: Record<string, React.CSSProperties> = {
+  container: { height: '100vh', display: 'flex', flexDirection: 'column', background: '#060d1a', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', overflow: 'hidden' },
+  header: { display: 'flex', alignItems: 'center', gap: '16px', padding: '10px 20px', background: '#0a1628', borderBottom: '1px solid #1e2d4a', flexShrink: 0 },
+  backBtn: { background: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 },
+  title: { margin: 0, fontSize: '1.2rem', color: '#fbbf24', fontWeight: 800 },
+  subtitle: { color: '#64748b', fontSize: '0.82rem' },
+  body: { display: 'flex', flex: 1, overflow: 'hidden' },
+  sidebar: { width: '240px', background: '#0a1628', borderRight: '1px solid #1e2d4a', padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: '4px', overflowY: 'auto', flexShrink: 0 },
+  navItem: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'transparent', border: '1px solid transparent', borderRadius: '8px', color: '#94a3b8', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, textAlign: 'left', width: '100%' },
+  navItemActive: { background: '#1e293b', borderColor: '#334155', color: '#fbbf24' },
+  main: { flex: 1, overflow: 'auto', padding: '20px 28px' },
+  article: { maxWidth: '800px' },
+  h3: { color: '#fbbf24', fontSize: '1.2rem', margin: '0 0 14px', fontWeight: 700 },
+  h4: { color: '#fbbf24', fontSize: '0.92rem', margin: '0 0 8px', fontWeight: 700 },
+  p: { fontSize: '0.88rem', lineHeight: '1.7', color: '#cbd5e1', margin: '0 0 12px' },
+  quote: { fontStyle: 'italic', color: '#94a3b8', borderLeft: '3px solid #fbbf24', paddingLeft: '14px', margin: '14px 0', lineHeight: '1.6', fontSize: '0.88rem' },
+  ul: { paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', lineHeight: '1.6', color: '#cbd5e1' },
+  ruleBox: { background: '#0f172a', border: '1px solid #1e2d4a', borderRadius: '10px', padding: '14px 16px', margin: '14px 0' },
+  infoBox: { background: '#0f172a', border: '1px solid #1e2d4a', borderRadius: '10px', padding: '14px 16px', margin: '14px 0' },
+  tipBox: { background: 'rgba(59,130,246,0.08)', border: '1px solid #3b82f640', borderRadius: '8px', padding: '12px 14px', margin: '14px 0', fontSize: '0.85rem', color: '#93c5fd', lineHeight: '1.6' },
+  warningBox: { background: 'rgba(239,68,68,0.06)', border: '1px solid #ef444430', borderRadius: '8px', padding: '12px 14px', margin: '14px 0', fontSize: '0.85rem', color: '#fca5a5', lineHeight: '1.6' },
+  grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px', marginTop: '8px' },
+  miniCard: { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '10px', fontSize: '0.82rem', lineHeight: '1.5', color: '#e2e8f0' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginTop: '8px' },
+  th: { textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #334155', color: '#94a3b8', fontWeight: 600 },
+  td: { padding: '6px 8px', borderBottom: '1px solid #1e2d4a20', color: '#cbd5e1' },
 };
