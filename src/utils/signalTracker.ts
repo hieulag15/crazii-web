@@ -123,7 +123,16 @@ export async function addSignal(signal: TrackedSignal): Promise<void> {
   }
   // Sync to MongoDB (best effort)
   try {
-    await apiFetch('/api/kl-signals', { method: 'POST', body: JSON.stringify(signal) });
+    const result = await apiFetch('/api/kl-signals', { method: 'POST', body: JSON.stringify(signal) });
+    // Cập nhật id từ MongoDB vào cache để update/delete sau này hoạt động đúng
+    if (result && result.id && result.id !== signal.id) {
+      const cache2 = readCache();
+      const idx = cache2.findIndex(s => s.id === signal.id);
+      if (idx >= 0) {
+        cache2[idx].id = result.id;
+        writeCache(cache2);
+      }
+    }
   } catch {
     // Silently fail - localStorage is the source of truth
   }

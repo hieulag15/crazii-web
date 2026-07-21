@@ -11,7 +11,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getDB } from './_lib/db';
+import { getDB } from './_lib/db.js';
 import { ObjectId } from 'mongodb';
 
 const COLLECTION = 'kl_signals';
