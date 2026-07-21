@@ -482,9 +482,11 @@ export function generateSignals(
   emaData: EMAData,
   patterns: CandlePattern[],
   volumeData: VolumeAnalysis[],
-  maxAge = 10 // Chỉ lấy tín hiệu trong N nến gần nhất (mặc định 10 = rất fresh)
+  maxAge = 1 // Entry chỉ từ nến cuối cùng (vừa đóng)
 ): KeyLevelSignal[] {
   const signals: KeyLevelSignal[] = [];
+  // Chỉ xét pattern ở nến cuối cùng (entry point)
+  // Nhưng dùng toàn bộ data trước đó để xác định trend, key level, context
   const minIndex = Math.max(5, candles.length - maxAge);
 
   for (const pattern of patterns) {

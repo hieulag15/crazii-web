@@ -24,6 +24,7 @@ import {
   type TrackedSignal, type TrackingStats, type SignalOutcome,
 } from '../utils/signalTracker';
 import type { Candle } from '../types/index';
+import { analyzeNewSignal, analyzePostMortem, analyzeScanResults } from '../utils/aiService';
 
 const GMT7_OFFSET = 7 * 3600;
 function fmtDate(ts: number) {
@@ -264,6 +265,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const [editTags, setEditTags] = useState<string[]>([]);
 
   const [savedSignalIds, setSavedSignalIds] = useState<Set<string>>(new Set());
+  const [aiAnalysis, setAiAnalysis] = useState<Record<string, string>>({});
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [aiScanSummary, setAiScanSummary] = useState<string>('');
 
   // Load signals from MongoDB (+ cache fallback)
   const refreshJournal = useCallback(async () => {
@@ -289,21 +293,15 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     return () => { cancelled = true; };
   }, [symbol, timeframe]);
 
-  // Auto-save tín hiệu mới vào Journal (chỉ signal trong 5 nến gần nhất)
+  // Auto-save tín hiệu mới vào Journal (chỉ signal mới nhất, đã validated bởi engine)
   useEffect(() => {
     if (!result || candles.length === 0) return;
-    const freshSignals = result.signals.filter(sig => {
-      // Chỉ auto-save signal ở 5 nến cuối cùng (rất mới)
-      const lastTime = candles[candles.length - 1].time;
-      const candleDuration = candles.length > 1 ? candles[1].time - candles[0].time : 3600;
-      return sig.time >= lastTime - candleDuration * 5;
-    });
-
-    for (const sig of freshSignals) {
+    // Engine đã filter signal: chỉ 3 nến gần nhất + entry gần giá hiện tại <= 1.5%
+    // Nên ở đây chỉ cần save tất cả signals từ engine (đã validated)
+    for (const sig of result.signals) {
       const sigKey = `${symbol}_${sig.time}_${sig.side}`;
       if (savedSignalIds.has(sigKey)) continue;
 
-      // Auto-save vào journal
       const tracked = createTrackedSignal(
         sig, symbol, timeframe, candles, result.emaData,
         result.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1
@@ -311,7 +309,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       addSignal(tracked);
       setSavedSignalIds(prev => new Set([...prev, sigKey]));
     }
-    if (freshSignals.length > 0) refreshJournal();
+    if (result.signals.length > 0) refreshJournal();
   }, [result, symbol, timeframe, candles, savedSignalIds, refreshJournal]);
 
   // Auto-track pending signals (check TP/SL) every 30s
@@ -389,7 +387,20 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     setLastAutoScan(Date.now());
     setScanning(false);
     refreshJournal();
-  }, [savedSignalIds, refreshJournal]);
+
+    // AI đánh giá tổng hợp sau scan
+    const signalsForAI = sorted.filter(sr => sr.signals.length > 0).map(sr => {
+      const sig = sr.signals[0];
+      return { symbol: sr.symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp, pattern: sig.pattern.name, trend: sig.trend, confidence: sig.confidence, volumeConfirm: sig.volumeConfirm };
+    });
+    if (signalsForAI.length > 0) {
+      const history = trackedSignals.filter(s => s.outcome !== 'pending').slice(0, 10)
+        .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side }));
+      analyzeScanResults(signalsForAI, history).then(summary => {
+        if (summary) setAiScanSummary(summary);
+      });
+    }
+  }, [savedSignalIds, refreshJournal, trackedSignals]);
 
   // Load cached results on mount
   useEffect(() => {
@@ -467,6 +478,35 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     setSavedSignalIds(prev => new Set([...prev, sigKey]));
     refreshJournal();
   }, [symbol, timeframe, candles, result, savedSignalIds, refreshJournal]);
+
+  // AI Analysis
+  const handleAIAnalyze = useCallback(async (sig: KeyLevelSignal) => {
+    const sigKey = `${symbol}_${sig.time}_${sig.side}`;
+    if (aiAnalysis[sigKey] || aiLoading) return;
+    setAiLoading(sigKey);
+    const history = trackedSignals.filter(s => s.outcome !== 'pending').slice(0, 10)
+      .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side }));
+    const candleData = candles.slice(-10).map(c => [c.open, c.high, c.low, c.close, c.volume]);
+    const analysis = await analyzeNewSignal(
+      { symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp, pattern: sig.pattern.name, trend: sig.trend, confidence: sig.confidence, volumeConfirm: sig.volumeConfirm, reason: sig.reason },
+      candleData, history
+    );
+    setAiAnalysis(prev => ({ ...prev, [sigKey]: analysis || '❌ Không thể kết nối AI' }));
+    setAiLoading(null);
+  }, [symbol, candles, trackedSignals, aiAnalysis, aiLoading]);
+
+  const handleAIPostMortem = useCallback(async (sig: TrackedSignal) => {
+    if (aiAnalysis[sig.id] || aiLoading) return;
+    setAiLoading(sig.id);
+    const analysis = await analyzePostMortem({
+      symbol: sig.symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp,
+      pattern: sig.pattern, trend: sig.trend, confidence: sig.confidence,
+      volumeConfirm: sig.volumeConfirm, reason: sig.reason,
+      outcome: sig.outcome, rAchieved: sig.rAchieved,
+    });
+    setAiAnalysis(prev => ({ ...prev, [sig.id]: analysis || '❌ Không thể kết nối AI' }));
+    setAiLoading(null);
+  }, [aiAnalysis, aiLoading]);
 
   // Edit signal notes/tags
   const handleStartEdit = (sig: TrackedSignal) => {
@@ -733,6 +773,12 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                 <span style={{ fontSize: '0.68rem', color: '#475569' }}>Auto-scan mỗi H4 close: {autoScanEnabled ? '✅ Bật' : '❌ Tắt'}</span>
               </div>
             </div>
+            {aiScanSummary && (
+              <div style={{ margin: '0 0 14px', padding: '12px 16px', background: '#1e1b4b', border: '1px solid #4c1d95', borderRadius: '10px', fontSize: '0.82rem', color: '#c4b5fd', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                <div style={{ fontWeight: 'bold', color: '#a78bfa', marginBottom: '6px' }}>🤖 AI Đánh giá sau scan:</div>
+                {aiScanSummary}
+              </div>
+            )}
             {scanResults.length === 0 && !scanning && (
               <div style={S.emptyState}>
                 <p>Chưa có dữ liệu scan.</p>
@@ -784,6 +830,13 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Confidence: <strong>{sig.confidence}%</strong></span>
                       <button
+                        onClick={() => handleAIAnalyze(sig)}
+                        disabled={!!aiAnalysis[sigKey] || aiLoading === sigKey}
+                        style={{ ...S.saveBtn, background: '#8b5cf610', color: '#c4b5fd', borderColor: '#8b5cf640' }}
+                      >
+                        {aiLoading === sigKey ? '⏳...' : aiAnalysis[sigKey] ? '✅ AI' : '🤖 AI Đánh giá'}
+                      </button>
+                      <button
                         onClick={() => result && handleSaveSignal(sig)}
                         disabled={isSaved || !result}
                         style={{ ...S.saveBtn, ...(isSaved ? S.saveBtnDone : {}) }}
@@ -802,6 +855,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                   </div>
                   <div style={S.signalReason}>{sig.reason}</div>
                   <div style={S.signalTime}>{fmtDate((sig.time + GMT7_OFFSET) * 1000)}</div>
+                  {aiAnalysis[sigKey] && (
+                    <div style={{ marginTop: '8px', padding: '10px', background: '#1e1b4b', border: '1px solid #4c1d95', borderRadius: '8px', fontSize: '0.82rem', color: '#c4b5fd', lineHeight: '1.5' }}>
+                      <span style={{ fontWeight: 'bold', color: '#a78bfa' }}>🤖 AI:</span> {aiAnalysis[sigKey]}
+                    </div>
+                  )}
                 </div>
               );
             }) : <div style={S.emptyState}>Chưa có tín hiệu nào đủ điều kiện (≥55% confidence, R:R ≥ 1.5)</div>}
@@ -913,6 +971,12 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                             </>
                           )}
                           <button onClick={() => handleStartEdit(sig)} style={S.editBtn}>✏️</button>
+                          {sig.outcome !== 'pending' && (
+                            <button onClick={() => handleAIPostMortem(sig)} disabled={!!aiAnalysis[sig.id] || aiLoading === sig.id}
+                              style={{ ...S.editBtn, color: '#a78bfa', borderColor: '#4c1d9540' }}>
+                              {aiLoading === sig.id ? '⏳' : '🤖'}
+                            </button>
+                          )}
                           <button onClick={() => { deleteSignal(sig.id); refreshJournal(); }} style={S.deleteBtn}>🗑</button>
                         </div>
                       </div>
@@ -933,6 +997,12 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                       )}
 
                       {sig.notes && <div style={{ ...S.signalReason, marginTop: '6px' }}>📝 {sig.notes}</div>}
+
+                      {aiAnalysis[sig.id] && (
+                        <div style={{ marginTop: '6px', padding: '8px 10px', background: '#1e1b4b', border: '1px solid #4c1d95', borderRadius: '6px', fontSize: '0.78rem', color: '#c4b5fd', lineHeight: '1.5' }}>
+                          <span style={{ fontWeight: 'bold', color: '#a78bfa' }}>🤖 AI:</span> {aiAnalysis[sig.id]}
+                        </div>
+                      )}
 
                       {/* Edit panel */}
                       {editingId === sig.id && (

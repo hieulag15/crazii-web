@@ -259,10 +259,30 @@ export function exportAsCSV(): string {
 
 export function exportForTraining(): string {
   return readCache().filter(s => s.outcome !== 'pending').map(s => JSON.stringify({
+    // Signal info
     symbol: s.symbol, timeframe: s.timeframe, side: s.side, pattern: s.pattern,
     trend: s.trend, confidence: s.confidence, volumeConfirm: s.volumeConfirm,
-    nearLevelType: s.nearLevelType, outcome: s.outcome, rAchieved: s.rAchieved,
-    marketContext: s.marketContext, notes: s.notes, tags: s.tags,
+    nearLevelType: s.nearLevelType, nearLevelPrice: s.nearLevelPrice,
+    // Entry/SL/TP
+    entry: s.entry, sl: s.sl, tp: s.tp,
+    riskReward: s.marketContext?.riskReward ?? null,
+    // Outcome
+    outcome: s.outcome, rAchieved: s.rAchieved,
+    maxFavorable: s.maxFavorable, maxAdverse: s.maxAdverse,
+    // Context — xu hướng 10 nến trước
+    marketContext: {
+      ema34: s.marketContext?.ema34, ema89: s.marketContext?.ema89, ema200: s.marketContext?.ema200,
+      volumeRatio: s.marketContext?.volumeRatio,
+      bullishCount: s.marketContext?.bullishCount,
+      bearishCount: s.marketContext?.bearishCount,
+      entryDistToEma34: s.marketContext?.entryDistToEma34,
+      entryDistToEma89: s.marketContext?.entryDistToEma89,
+      entryDistToEma200: s.marketContext?.entryDistToEma200,
+      prevCandles: s.marketContext?.prevCandles, // 10 nến OHLCV
+    },
+    // User notes
+    notes: s.notes, tags: s.tags,
+    reason: s.reason,
   })).join('\n');
 }
 
@@ -282,8 +302,18 @@ export function createTrackedSignal(
   volumeRatio: number
 ): TrackedSignal {
   const lastIdx = candles.length - 1;
-  const prevCandles = candles.slice(Math.max(0, lastIdx - 4), lastIdx + 1)
+  // Ghi 10 nến gần nhất để LLM có context xu hướng
+  const prevCandles = candles.slice(Math.max(0, lastIdx - 9), lastIdx + 1)
     .map(c => [c.open, c.high, c.low, c.close, c.volume]);
+
+  // Tính thêm context cho LLM analysis sau này
+  const last5 = candles.slice(Math.max(0, lastIdx - 4), lastIdx + 1);
+  const bullishCount = last5.filter(c => c.close > c.open).length;
+  const bearishCount = last5.filter(c => c.close < c.open).length;
+  const avgBodySize = last5.reduce((s, c) => s + Math.abs(c.close - c.open), 0) / last5.length;
+  const entryDistToEma34 = emaData.ema34[lastIdx] ? ((signal.entry - emaData.ema34[lastIdx]) / emaData.ema34[lastIdx] * 100) : 0;
+  const entryDistToEma89 = emaData.ema89[lastIdx] ? ((signal.entry - emaData.ema89[lastIdx]) / emaData.ema89[lastIdx] * 100) : 0;
+  const entryDistToEma200 = emaData.ema200[lastIdx] ? ((signal.entry - emaData.ema200[lastIdx]) / emaData.ema200[lastIdx] * 100) : 0;
 
   return {
     id: `${symbol}_${signal.time}_${signal.side}_${Date.now()}`,
@@ -299,6 +329,10 @@ export function createTrackedSignal(
     marketContext: {
       ema34: emaData.ema34[lastIdx] ?? 0, ema89: emaData.ema89[lastIdx] ?? 0,
       ema200: emaData.ema200[lastIdx] ?? 0, volumeRatio, prevCandles,
+      // Extra context cho LLM
+      bullishCount, bearishCount, avgBodySize,
+      entryDistToEma34, entryDistToEma89, entryDistToEma200,
+      riskReward: signal.rr,
     },
   };
 }
