@@ -36,6 +36,13 @@ export interface TrackedSignal {
     ema200: number;
     volumeRatio: number;
     prevCandles: number[][];
+    bullishCount?: number;
+    bearishCount?: number;
+    avgBodySize?: number;
+    entryDistToEma34?: number;
+    entryDistToEma89?: number;
+    entryDistToEma200?: number;
+    riskReward?: number;
   };
 }
 
