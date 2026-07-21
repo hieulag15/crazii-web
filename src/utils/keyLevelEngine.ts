@@ -481,55 +481,63 @@ export function generateSignals(
   keyLevels: KeyLevel[],
   emaData: EMAData,
   patterns: CandlePattern[],
-  volumeData: VolumeAnalysis[]
+  volumeData: VolumeAnalysis[],
+  maxAge = 10 // Chỉ lấy tín hiệu trong N nến gần nhất (mặc định 10 = rất fresh)
 ): KeyLevelSignal[] {
   const signals: KeyLevelSignal[] = [];
+  const minIndex = Math.max(5, candles.length - maxAge);
 
   for (const pattern of patterns) {
     const i = pattern.index;
-    if (i < 5 || i >= candles.length) continue;
+    if (i < minIndex || i >= candles.length) continue;
     if (pattern.direction === 'neutral') continue;
 
     const c = candles[i];
-    const price = c.close;
+    const price = c.close; // Entry = giá đóng nến đảo chiều
     const trend = detectTrend(emaData, i);
     const vol = volumeData[i];
 
-    // Bước 3: Giá phải ở gần key level
+    // Bước 1: Xác định side dựa trên pattern direction
     let nearLevel: KeyLevel | null = null;
     let side: 'buy' | 'sell' | null = null;
 
     if (pattern.direction === 'bullish') {
-      // Tìm hỗ trợ gần đó
+      // Tìm hỗ trợ gần — nến wick phải "chạm" vào vùng
       nearLevel = findNearestLevel(price, keyLevels, 'support', 1.0);
-      // Cũng xét EMA như hỗ trợ động
       if (!nearLevel) {
+        // Kiểm tra low of candle chạm level (wick touch)
+        nearLevel = findNearestLevel(c.low, keyLevels, 'support', 0.5);
+      }
+      if (!nearLevel) {
+        // EMA như hỗ trợ động
         const ema34Dist = Math.abs(price - emaData.ema34[i]) / price * 100;
         const ema89Dist = Math.abs(price - emaData.ema89[i]) / price * 100;
         const ema200Dist = Math.abs(price - emaData.ema200[i]) / price * 100;
-        if (ema34Dist < 0.5 || ema89Dist < 0.8 || ema200Dist < 1.0) {
-          nearLevel = {
-            price: emaData.ema34[i],
-            type: 'support',
-            strength: 3,
-            touches: 3
-          };
+        if (price > emaData.ema34[i] && ema34Dist < 0.8) {
+          nearLevel = { price: emaData.ema34[i], type: 'support', strength: 2, touches: 2 };
+        } else if (price > emaData.ema89[i] && ema89Dist < 1.2) {
+          nearLevel = { price: emaData.ema89[i], type: 'support', strength: 2, touches: 3 };
+        } else if (price > emaData.ema200[i] && ema200Dist < 1.5) {
+          nearLevel = { price: emaData.ema200[i], type: 'support', strength: 3, touches: 3 };
         }
       }
       if (nearLevel) side = 'buy';
     } else {
-      // Tìm kháng cự gần đó
+      // Tìm kháng cự gần
       nearLevel = findNearestLevel(price, keyLevels, 'resistance', 1.0);
+      if (!nearLevel) {
+        nearLevel = findNearestLevel(c.high, keyLevels, 'resistance', 0.5);
+      }
       if (!nearLevel) {
         const ema34Dist = Math.abs(price - emaData.ema34[i]) / price * 100;
         const ema89Dist = Math.abs(price - emaData.ema89[i]) / price * 100;
-        if (ema34Dist < 0.5 || ema89Dist < 0.8) {
-          nearLevel = {
-            price: emaData.ema34[i],
-            type: 'resistance',
-            strength: 3,
-            touches: 3
-          };
+        const ema200Dist = Math.abs(price - emaData.ema200[i]) / price * 100;
+        if (price < emaData.ema34[i] && ema34Dist < 0.8) {
+          nearLevel = { price: emaData.ema34[i], type: 'resistance', strength: 2, touches: 2 };
+        } else if (price < emaData.ema89[i] && ema89Dist < 1.2) {
+          nearLevel = { price: emaData.ema89[i], type: 'resistance', strength: 2, touches: 3 };
+        } else if (price < emaData.ema200[i] && ema200Dist < 1.5) {
+          nearLevel = { price: emaData.ema200[i], type: 'resistance', strength: 3, touches: 3 };
         }
       }
       if (nearLevel) side = 'sell';
@@ -547,18 +555,29 @@ export function generateSignals(
       if (nearResistance) continue;
     }
 
+    // Bước xác nhận: Nến phải thực sự "chạm" vào vùng (wick touch)
+    // Kiểm tra wick đã touch level (cho phép tolerance 0.3%)
+    const touchTolerance = nearLevel.price * 0.003;
+    const wickTouched = side === 'buy'
+      ? c.low <= nearLevel.price + touchTolerance  // Wick phải chạm xuống gần support
+      : c.high >= nearLevel.price - touchTolerance; // Wick phải chạm lên gần resistance
+
+    // Nếu key level tĩnh (strength >= 3), yêu cầu wick phải touch
+    // EMA động (strength <= 3) thì chỉ cần gần là ok
+    if (nearLevel.strength >= 4 && !wickTouched) continue;
+
     // Tính confidence
     let confidence = 40; // base
 
-    // +15 nếu cùng xu hướng chính
+    // +15 nếu cùng xu hướng chính (Bước 1)
     if ((side === 'buy' && trend.direction === 'uptrend') ||
         (side === 'sell' && trend.direction === 'downtrend')) {
       confidence += 15;
     }
-    // -10 nếu ngược xu hướng
+    // -15 nếu ngược xu hướng → tín hiệu counter-trend rủi ro cao
     if ((side === 'buy' && trend.direction === 'downtrend') ||
         (side === 'sell' && trend.direction === 'uptrend')) {
-      confidence -= 10;
+      confidence -= 15;
     }
 
     // +15 Volume xác nhận
@@ -570,13 +589,16 @@ export function generateSignals(
     if (nearLevel.touches >= 5) confidence += 10;
     if (nearLevel.touches >= 8) confidence += 5;
 
-    // +10 Pattern mạnh (engulfing, morning/evening star)
+    // +10 Pattern mạnh (engulfing, morning/evening star, kicker)
     const strongPatterns: CandlePatternType[] = [
       'bullish_engulfing', 'bearish_engulfing',
       'morning_star', 'evening_star',
       'bullish_kicker', 'bearish_kicker'
     ];
     if (strongPatterns.includes(pattern.type)) confidence += 10;
+
+    // +5 Wick đã touch chính xác vào level
+    if (wickTouched) confidence += 5;
 
     // +5 Money flow đúng hướng
     if (vol && side === 'buy' && vol.moneyFlow > 0) confidence += 5;
@@ -588,15 +610,48 @@ export function generateSignals(
     // Chỉ lấy signal >= 55% confidence
     if (confidence < 55) continue;
 
-    // Tính SL, TP
-    const sl = side === 'buy'
-      ? Math.min(c.low, nearLevel.price) * 0.998
-      : Math.max(c.high, nearLevel.price) * 1.002;
+    // Tính SL: Scan vùng sideway gần đó, lấy chân râu dài nhất
+    // Nếu có nhiều nến thả râu tại vùng → SL sau chân râu cây nến dài nhất
+    const slLookback = 5; // Scan 5 nến gần vùng
+    let extremeWick: number;
 
-    const nextLevel = findNextLevel(price, keyLevels, side === 'buy' ? 'up' : 'down');
-    const tp = nextLevel
-      ? nextLevel
-      : side === 'buy' ? price * 1.02 : price * 0.98;
+    if (side === 'buy') {
+      // Tìm low thấp nhất trong vùng sideway gần support
+      const nearbyLows = candles.slice(Math.max(0, i - slLookback), i + 1)
+        .filter(candle => Math.abs(candle.low - nearLevel.price) / nearLevel.price < 0.01)
+        .map(candle => candle.low);
+      extremeWick = nearbyLows.length > 0 ? Math.min(...nearbyLows) : c.low;
+    } else {
+      // Tìm high cao nhất trong vùng sideway gần resistance
+      const nearbyHighs = candles.slice(Math.max(0, i - slLookback), i + 1)
+        .filter(candle => Math.abs(candle.high - nearLevel.price) / nearLevel.price < 0.01)
+        .map(candle => candle.high);
+      extremeWick = nearbyHighs.length > 0 ? Math.max(...nearbyHighs) : c.high;
+    }
+
+    // SL = extreme wick + buffer nhỏ (tránh quét)
+    const wickBuffer = (c.high - c.low) * 0.15;
+    const sl = side === 'buy'
+      ? extremeWick - wickBuffer
+      : extremeWick + wickBuffer;
+
+    // Tính TP: Key level kế tiếp phía giá đang đi (S/R thực)
+    // Ưu tiên key level, fallback sang EMA, cuối cùng ATR
+    const nextKeyLevel = findNextLevel(price, keyLevels, side === 'buy' ? 'up' : 'down');
+    const nextEma = side === 'buy'
+      ? [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]].filter(e => e > price * 1.003).sort((a, b) => a - b)[0]
+      : [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]].filter(e => e < price * 0.997).sort((a, b) => b - a)[0];
+
+    let tp: number;
+    if (nextKeyLevel) {
+      tp = nextKeyLevel;
+    } else if (nextEma) {
+      tp = nextEma;
+    } else {
+      // Fallback: ATR-based (2x risk)
+      const risk = Math.abs(price - sl);
+      tp = side === 'buy' ? price + risk * 2 : price - risk * 2;
+    }
 
     const rr = Math.abs(tp - price) / Math.abs(price - sl);
 
@@ -608,7 +663,8 @@ export function generateSignals(
       `Xu hướng: ${trend.direction === 'uptrend' ? '⬆️ Tăng' : trend.direction === 'downtrend' ? '⬇️ Giảm' : '↔️ Sideway'}`,
       volumeConfirm ? '✅ Volume xác nhận' : '⚠️ Volume thấp',
       `R:R = ${rr.toFixed(1)}`,
-    ].join(' | ');
+      wickTouched ? '🎯 Wick chạm level' : '',
+    ].filter(Boolean).join(' | ');
 
     signals.push({
       time: c.time,
@@ -633,6 +689,80 @@ export function generateSignals(
 // ============================================================
 // MAIN: Calculate All
 // ============================================================
+
+export interface MultiTimeframeContext {
+  daily: { trend: TrendDirection; volumeTrend: 'buying' | 'selling' | 'neutral'; avgVolRatio: number } | null;
+  weekly: { trend: TrendDirection; structure: string } | null;
+}
+
+/** Analyze higher timeframe context (D1/W1 candles) */
+export function analyzeMultiTimeframe(
+  dailyCandles: Candle[],
+  weeklyCandles: Candle[]
+): MultiTimeframeContext {
+  let daily: MultiTimeframeContext['daily'] = null;
+  let weekly: MultiTimeframeContext['weekly'] = null;
+
+  // Daily analysis
+  if (dailyCandles.length >= 30) {
+    const dEma = calculateEMAs(dailyCandles);
+    const dTrend = detectTrend(dEma, dailyCandles.length - 1);
+
+    // Volume trend: kiểm tra vol mua vs vol bán 5 nến gần nhất
+    const last5 = dailyCandles.slice(-5);
+    let buyVol = 0, sellVol = 0;
+    for (const c of last5) {
+      if (c.close > c.open) buyVol += c.volume;
+      else sellVol += c.volume;
+    }
+    const volumeTrend = buyVol > sellVol * 1.3 ? 'buying' as const
+      : sellVol > buyVol * 1.3 ? 'selling' as const : 'neutral' as const;
+
+    // Average volume ratio
+    const vol5 = last5.reduce((s, c) => s + c.volume, 0) / 5;
+    const vol20 = dailyCandles.slice(-20).reduce((s, c) => s + c.volume, 0) / 20;
+    const avgVolRatio = vol20 > 0 ? vol5 / vol20 : 1;
+
+    daily = { trend: dTrend.direction, volumeTrend, avgVolRatio };
+  }
+
+  // Weekly analysis - detect classic patterns
+  if (weeklyCandles.length >= 10) {
+    const wEma = calculateEMAs(weeklyCandles);
+    const wTrend = detectTrend(wEma, weeklyCandles.length - 1);
+
+    // Simple structure detection (2 đỉnh, 2 đáy, trending)
+    const last10 = weeklyCandles.slice(-10);
+    const highs = last10.map(c => c.high);
+    const lows = last10.map(c => c.low);
+
+    // Count local highs/lows
+    let peaks = 0, valleys = 0;
+    for (let j = 1; j < highs.length - 1; j++) {
+      if (highs[j] > highs[j - 1] && highs[j] > highs[j + 1]) peaks++;
+      if (lows[j] < lows[j - 1] && lows[j] < lows[j + 1]) valleys++;
+    }
+
+    let structure = 'trending';
+    if (peaks >= 2 && valleys >= 1) structure = 'double_top_risk';
+    if (valleys >= 2 && peaks >= 1) structure = 'double_bottom_potential';
+    if (peaks >= 3) structure = 'triple_top_risk';
+    if (valleys >= 3) structure = 'triple_bottom_potential';
+
+    // Higher highs + higher lows = uptrend
+    const lastHigh = Math.max(...highs.slice(-3));
+    const prevHigh = Math.max(...highs.slice(0, 5));
+    const lastLow = Math.min(...lows.slice(-3));
+    const prevLow = Math.min(...lows.slice(0, 5));
+
+    if (lastHigh > prevHigh && lastLow > prevLow) structure = 'higher_highs_lows';
+    if (lastHigh < prevHigh && lastLow < prevLow) structure = 'lower_highs_lows';
+
+    weekly = { trend: wTrend.direction, structure };
+  }
+
+  return { daily, weekly };
+}
 
 export function calculateKeyLevelSystem(candles: Candle[]): KeyLevelResult {
   if (candles.length < 50) {

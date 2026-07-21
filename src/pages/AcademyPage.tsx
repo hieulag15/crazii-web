@@ -1,17 +1,17 @@
 import { useState } from 'react';
 
 interface AcademyPageProps { onBack: () => void; }
-type TopicId = 'overview' | 'op' | 'candles' | 'ksi_kcx' | 'ktr' | 'diamond' | 'entry' | 'tp_sl';
+type TopicId = 'overview' | 'step1' | 'step2' | 'step3' | 'step4' | 'mtf' | 'rules' | 'rr';
 
 const TOPICS: { id: TopicId; icon: string; label: string }[] = [
-  { id: 'overview', icon: '🎯', label: 'Tổng quan hệ thống' },
-  { id: 'op', icon: '🔑', label: 'Luật OP (Quan trọng nhất)' },
-  { id: 'candles', icon: '🕯️', label: 'Nến Vàng/Đỏ & Zebra' },
-  { id: 'ksi_kcx', icon: '🦈', label: 'KSI & KCX (Dòng tiền)' },
-  { id: 'ktr', icon: '📊', label: 'KTR & MLP (Chốt lời)' },
-  { id: 'diamond', icon: '💎', label: 'Kim Cương & EMA200' },
-  { id: 'entry', icon: '⚡', label: 'Cách vào lệnh' },
-  { id: 'tp_sl', icon: '🎯', label: 'Cách đặt TP/SL' },
+  { id: 'overview', icon: '🎯', label: 'Tổng quan phương pháp' },
+  { id: 'step1', icon: '📈', label: 'B1: Xác định xu hướng' },
+  { id: 'step2', icon: '🔑', label: 'B2: Khoanh vùng S/R' },
+  { id: 'step3', icon: '🕯️', label: 'B3: Chờ nến đảo chiều' },
+  { id: 'step4', icon: '⚡', label: 'B4: Xác nhận & Vào lệnh' },
+  { id: 'mtf', icon: '🔍', label: 'Multi-Timeframe' },
+  { id: 'rules', icon: '🚫', label: 'Nguyên tắc bất biến' },
+  { id: 'rr', icon: '💰', label: 'Quản lý vốn & R:R' },
 ];
 
 export default function AcademyPage({ onBack }: AcademyPageProps) {
@@ -20,8 +20,8 @@ export default function AcademyPage({ onBack }: AcademyPageProps) {
     <div style={S.container}>
       <header style={S.header}>
         <button onClick={onBack} style={S.backBtn}>← Quay lại Chart</button>
-        <h2 style={S.title}>📖 Học Viện CRAZII Trading</h2>
-        <span style={S.subtitle}>Kiến thức nền tảng &amp; Logic hệ thống</span>
+        <h2 style={S.title}>📖 Học Viện Trading</h2>
+        <span style={S.subtitle}>Key Level + Nến Đảo Chiều + EMA</span>
       </header>
       <div style={S.body}>
         <nav style={S.sidebar}>
@@ -32,9 +32,7 @@ export default function AcademyPage({ onBack }: AcademyPageProps) {
             </button>
           ))}
         </nav>
-        <main style={S.main}>
-          {renderTopic(activeTopic)}
-        </main>
+        <main style={S.main}>{renderTopic(activeTopic)}</main>
       </div>
     </div>
   );
@@ -43,277 +41,330 @@ export default function AcademyPage({ onBack }: AcademyPageProps) {
 function renderTopic(id: TopicId) {
   switch (id) {
     case 'overview': return <Overview />;
-    case 'op': return <OpSection />;
-    case 'candles': return <CandlesSection />;
-    case 'ksi_kcx': return <KsiKcxSection />;
-    case 'ktr': return <KtrSection />;
-    case 'diamond': return <DiamondSection />;
-    case 'entry': return <EntrySection />;
-    case 'tp_sl': return <TpSlSection />;
+    case 'step1': return <Step1 />;
+    case 'step2': return <Step2 />;
+    case 'step3': return <Step3 />;
+    case 'step4': return <Step4 />;
+    case 'mtf': return <MtfSection />;
+    case 'rules': return <RulesSection />;
+    case 'rr': return <RrSection />;
   }
 }
 
 function Overview() {
   return (
     <article style={S.article}>
-      <h3 style={S.h3}>🎯 Tổng Quan Hệ Thống CRAZII</h3>
-      <p style={S.p}>CRAZII Trading System là hệ thống giao dịch dựa trên <strong>dòng tiền thông minh</strong> (Smart Money) kết hợp quy tắc quản lý rủi ro nghiêm ngặt. Hệ thống giúp trader loại bỏ cảm xúc, đưa ra quyết định dựa trên dữ liệu khách quan.</p>
+      <h3 style={S.h3}>🎯 Phương Pháp: Key Level + Nến Đảo Chiều</h3>
+      <blockquote style={S.quote}>"Combo đơn giản nhưng ăn tiền: Key Level + Nến đảo chiều. Không cần hàng tá indicator rối rắm."</blockquote>
+      <p style={S.p}>Đây là phương pháp giao dịch dựa trên <strong>Price Action</strong> thuần túy, kết hợp Key Level (hỗ trợ/kháng cự) với mô hình nến đảo chiều để tìm điểm vào lệnh chính xác.</p>
       <div style={S.infoBox}>
-        <h4 style={S.h4}>Các thành phần cốt lõi:</h4>
-        <div style={S.grid2}>
-          <div style={S.miniCard}><span style={{color:'#fbbf24'}}>🔑 OP</span><br/><small>Xác định hướng BUY/SELL duy nhất trong ngày (⭐⭐⭐⭐⭐)</small></div>
-          <div style={S.miniCard}><span style={{color:'#fbbf24'}}>🕯️ Nến Vàng/Đỏ</span><br/><small>Điểm kích hoạt vào lệnh (⭐⭐⭐⭐)</small></div>
-          <div style={S.miniCard}><span style={{color:'#22c55e'}}>🦈 KSI</span><br/><small>Dòng tiền cá mập gom/xả (⭐⭐⭐⭐)</small></div>
-          <div style={S.miniCard}><span style={{color:'#06b6d4'}}>📉 KCX</span><br/><small>Tâm lý & kiệt sức nhỏ lẻ (⭐⭐⭐)</small></div>
-          <div style={S.miniCard}><span style={{color:'#22c55e'}}>📊 KTR</span><br/><small>Mục tiêu chốt lời trong ngày (⭐⭐⭐)</small></div>
-          <div style={S.miniCard}><span style={{color:'#a855f7'}}>📐 MLP</span><br/><small>Xác nhận đồng thuận xu hướng (⭐⭐⭐⭐)</small></div>
-          <div style={S.miniCard}><span style={{color:'#ec4899'}}>🔄 PIVOT</span><br/><small>Hỗ trợ/kháng cự phiên trước (⭐⭐⭐⭐⭐)</small></div>
-          <div style={S.miniCard}><span style={{color:'#06b6d4'}}>💎 Kim Cương</span><br/><small>Tín hiệu đảo chiều cực mạnh (⭐⭐⭐⭐)</small></div>
-        </div>
-      </div>
-      <div style={S.warningBox}><strong>⚠️ Nguyên tắc vàng:</strong> Luôn tuân thủ Luật OP trước tất cả. Không có chỉ báo nào override được quy tắc OP.</div>
-    </article>
-  );
-}
-
-function OpSection() {
-  return (
-    <article style={S.article}>
-      <h3 style={S.h3}>🔑 Luật OP — Hạt Nhân Quyết Định Xu Hướng</h3>
-      <blockquote style={S.quote}>"Sai lầm lớn nhất của người mới là mở chart lên và phân vân không biết hôm nay nên Buy hay Sell. CRAZII dùng đúng một điểm neo: Đường OP."</blockquote>
-      <p style={S.p}><strong>Định nghĩa:</strong> OP (Opening Price) là giá mở cửa lúc 5h sáng (GMT+7). Đây là "mỏ neo định hướng giao dịch" cho cả ngày.</p>
-      <div style={S.ruleBox}>
-        <h4 style={S.h4}>Quy tắc bất di bất dịch:</h4>
+        <h4 style={S.h4}>Tài nguyên sử dụng:</h4>
         <ul style={S.ul}>
-          <li>📈 <strong>Giá TRÊN OP:</strong> Phe Mua làm chủ → Chỉ ưu tiên <span style={{color:'#22c55e',fontWeight:'bold'}}>BUY (Long)</span></li>
-          <li>📉 <strong>Giá DƯỚI OP:</strong> Phe Bán làm chủ → Chỉ ưu tiên <span style={{color:'#ef4444',fontWeight:'bold'}}>SELL (Short)</span></li>
+          <li><strong>Key Levels [K-Means] + EMA</strong> — Indicator tự vẽ hỗ trợ/kháng cự tĩnh + 3 đường EMA 34/89/200</li>
+          <li><strong>Candlestick Pattern</strong> — Indicator tự nhận diện mô hình nến đảo chiều</li>
         </ul>
       </div>
-      <div style={S.tipBox}>
-        <strong>💡 Mẹo thực chiến:</strong> Khi giá cắt qua OP nhiều lần liên tục (sideway quanh OP), đó là dấu hiệu thị trường đang "lưỡng lự". Tốt nhất nên đứng ngoài chờ giá xác nhận rõ ràng phía nào.
-      </div>
-      <p style={S.p}><strong>Ý nghĩa:</strong> Bằng cách tôn trọng OP, bạn luôn đi đúng hướng cùng dòng tiền của tổ chức lớn, hạn chế tối đa việc trade ngược xu hướng — nguyên nhân #1 gây cháy tài khoản.</p>
-    </article>
-  );
-}
-
-function CandlesSection() {
-  return (
-    <article style={S.article}>
-      <h3 style={S.h3}>🕯️ Nến Vàng/Đỏ & Zebra — Điểm Kích Hoạt Lệnh</h3>
-      <p style={S.p}>Hệ thống CRAZII dùng Heiken Ashi Smooth để chuyển đổi nến thường thành 2 màu trực quan, loại bỏ nhiễu:</p>
-      <div style={{display:'flex',gap:'12px',marginBottom:'16px'}}>
-        <div style={{flex:1,background:'rgba(251,191,36,0.1)',border:'1px solid #fbbf24',borderRadius:'8px',padding:'12px',textAlign:'center'}}>
-          <div style={{fontSize:'1.5rem'}}>🟡</div>
-          <strong style={{color:'#fbbf24'}}>Nến Vàng</strong>
-          <p style={{fontSize:'0.8rem',color:'#cbd5e1',margin:'4px 0 0'}}>Lực MUA áp đảo</p>
-        </div>
-        <div style={{flex:1,background:'rgba(239,68,68,0.1)',border:'1px solid #ef4444',borderRadius:'8px',padding:'12px',textAlign:'center'}}>
-          <div style={{fontSize:'1.5rem'}}>🔴</div>
-          <strong style={{color:'#ef4444'}}>Nến Đỏ</strong>
-          <p style={{fontSize:'0.8rem',color:'#cbd5e1',margin:'4px 0 0'}}>Lực BÁN áp đảo</p>
-        </div>
-        <div style={{flex:1,background:'rgba(234,179,8,0.1)',border:'1px solid #eab308',borderRadius:'8px',padding:'12px',textAlign:'center'}}>
-          <div style={{fontSize:'1.5rem'}}>🦓</div>
-          <strong style={{color:'#eab308'}}>Nến Zebra</strong>
-          <p style={{fontSize:'0.8rem',color:'#cbd5e1',margin:'4px 0 0'}}>Giằng co → ĐỨNG NGOÀI</p>
-        </div>
-      </div>
       <div style={S.ruleBox}>
-        <h4 style={S.h4}>Tín hiệu kích hoạt (CCRY / CCYR):</h4>
-        <ul style={S.ul}>
-          <li>🟢 <strong>CCRY (Đỏ → Vàng):</strong> Nến đỏ đổi sang vàng. Chỉ có giá trị BUY khi giá đang <strong>TRÊN OP</strong>.</li>
-          <li>🔴 <strong>CCYR (Vàng → Đỏ):</strong> Nến vàng đổi sang đỏ. Chỉ có giá trị SELL khi giá đang <strong>DƯỚI OP</strong>.</li>
-          <li>⚠️ <strong>Zebra:</strong> Nến đỏ/vàng đan xen liên tục = sideway nén mạnh. <strong>Tuyệt đối đứng ngoài.</strong></li>
-        </ul>
+        <h4 style={S.h4}>4 bước setup chuẩn:</h4>
+        <ol style={{...S.ul, paddingLeft:'20px'}}>
+          <li><strong>Xác định xu hướng chính</strong> — EMA 34/89/200 trên D1/H4</li>
+          <li><strong>Khoanh vùng kháng cự/hỗ trợ</strong> — Key Level tĩnh + EMA động</li>
+          <li><strong>Chờ giá về vùng</strong> — Đợi nến đảo chiều xuất hiện tại đúng vùng</li>
+          <li><strong>Xác nhận + Vào lệnh</strong> — Entry sau nến đóng, SL dưới râu, TP key level tiếp theo</li>
+        </ol>
       </div>
-      <div style={S.tipBox}><strong>💡 Lưu ý:</strong> Cần ít nhất 3-4 cây nến cùng màu liên tiếp tăng/giảm dần để xác nhận xu hướng đủ mạnh trước khi vào lệnh.</div>
+      <div style={S.tipBox}><strong>💡 Triết lý:</strong> Kiên nhẫn chờ giá đến vùng mình muốn, không đuổi giá. 80% hiệu quả đến từ việc kiên nhẫn ở Bước 3.</div>
     </article>
   );
 }
 
-function KsiKcxSection() {
+function Step1() {
   return (
     <article style={S.article}>
-      <h3 style={S.h3}>🦈 KSI & KCX — Giải Mã Dòng Tiền Cá Mập</h3>
-      <p style={S.p}>Để tránh bẫy thị trường, CRAZII tích hợp 2 chỉ số dòng tiền quan trọng giúp bạn biết "ai đang làm gì":</p>
+      <h3 style={S.h3}>📈 Bước 1: Xác Định Xu Hướng Chính</h3>
+      <p style={S.p}>Nhìn khung lớn trước (D1 hoặc H4) để biết thị trường đang tăng hay giảm. Dùng bộ 3 EMA 34/89/200 làm kim chỉ nam:</p>
       <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
-        <div style={{flex:1,minWidth:'250px',background:'#0f172a',border:'1px solid #1e2d4a',borderRadius:'10px',padding:'16px'}}>
-          <h4 style={{color:'#22c55e',margin:'0 0 8px'}}>🦈 KSI (Shark Money Flow)</h4>
-          <p style={{fontSize:'0.85rem',color:'#cbd5e1',lineHeight:'1.6'}}>Chỉ số hành động của cá mập (tổ chức lớn):</p>
-          <ul style={S.ul}>
-            <li><span style={{color:'#22c55e'}}>🟢 Xanh:</span> Cá mập đang <strong>gom hàng</strong> → Ưu tiên BUY</li>
-            <li><span style={{color:'#ef4444'}}>🔴 Đỏ:</span> Cá mập đang <strong>xả hàng</strong> → Ưu tiên SELL</li>
+        <div style={{flex:1,minWidth:'200px',background:'rgba(34,197,94,0.06)',border:'1px solid #22c55e40',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#22c55e',margin:'0 0 6px',fontSize:'0.9rem'}}>⬆️ Xu hướng TĂNG</h4>
+          <ul style={{...S.ul,fontSize:'0.82rem'}}>
+            <li>EMA 34 &gt; EMA 89 &gt; EMA 200</li>
+            <li>Giá nằm <strong>trên</strong> cả 3 đường EMA</li>
+            <li>→ Ưu tiên tìm lệnh <strong>BUY</strong></li>
           </ul>
         </div>
-        <div style={{flex:1,minWidth:'250px',background:'#0f172a',border:'1px solid #1e2d4a',borderRadius:'10px',padding:'16px'}}>
-          <h4 style={{color:'#06b6d4',margin:'0 0 8px'}}>📉 KCX (Retail Sentiment)</h4>
-          <p style={{fontSize:'0.85rem',color:'#cbd5e1',lineHeight:'1.6'}}>Đo tâm lý & sự kiệt sức của đám đông nhỏ lẻ:</p>
-          <ul style={S.ul}>
-            <li><span style={{color:'#1e293b',background:'#e2e8f0',padding:'0 4px',borderRadius:'3px'}}>⚫ Đen:</span> Nhỏ lẻ đang ham hố <strong>MUA đuổi</strong></li>
-            <li><span style={{color:'#3b82f6'}}>🔵 Xanh dương:</span> Nhỏ lẻ đang hoảng loạn <strong>BÁN tháo</strong></li>
-            <li><span style={{color:'#22c55e'}}>🟢 Xanh lá nhấp nháy:</span> Nhỏ lẻ <strong>CẠN LỰC BÁN</strong> — thời điểm vàng cá mập kích hoạt đảo chiều tăng</li>
+        <div style={{flex:1,minWidth:'200px',background:'rgba(239,68,68,0.06)',border:'1px solid #ef444440',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#ef4444',margin:'0 0 6px',fontSize:'0.9rem'}}>⬇️ Xu hướng GIẢM</h4>
+          <ul style={{...S.ul,fontSize:'0.82rem'}}>
+            <li>EMA 34 &lt; EMA 89 &lt; EMA 200</li>
+            <li>Giá nằm <strong>dưới</strong> cả 3 đường EMA</li>
+            <li>→ Ưu tiên tìm lệnh <strong>SELL</strong></li>
+          </ul>
+        </div>
+        <div style={{flex:1,minWidth:'200px',background:'rgba(234,179,8,0.06)',border:'1px solid #eab30840',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#eab308',margin:'0 0 6px',fontSize:'0.9rem'}}>↔️ Sideway</h4>
+          <ul style={{...S.ul,fontSize:'0.82rem'}}>
+            <li>3 đường EMA đan xen lộn xộn</li>
+            <li>Giá dao động quanh EMA</li>
+            <li>→ <strong>Đứng ngoài</strong> hoặc giao dịch cẩn trọng</li>
           </ul>
         </div>
       </div>
       <div style={S.ruleBox}>
-        <h4 style={S.h4}>Cách kết hợp KSI + KCX:</h4>
+        <h4 style={S.h4}>Ý nghĩa 3 đường EMA:</h4>
         <ul style={S.ul}>
-          <li><strong>BUY mạnh:</strong> Nến Vàng + Giá trên OP + KSI Xanh + KCX Đen (nhỏ lẻ mua đuổi)</li>
-          <li><strong>SELL mạnh:</strong> Nến Đỏ + Giá dưới OP + KSI Đỏ + KCX Xanh dương (nhỏ lẻ bán tháo)</li>
-          <li><strong>Đảo chiều tăng:</strong> KCX Xanh lá nhấp nháy + KSI chuyển Xanh = cá mập bắt đáy</li>
+          <li><span style={{color:'#f97316'}}>EMA 34 (Cam)</span> — Xu hướng ngắn hạn, phản ứng nhanh</li>
+          <li><span style={{color:'#3b82f6'}}>EMA 89 (Xanh)</span> — Xu hướng trung hạn</li>
+          <li><span style={{color:'#a855f7'}}>EMA 200 (Tím)</span> — Xu hướng dài hạn, rất quan trọng</li>
         </ul>
       </div>
+      <div style={S.tipBox}><strong>💡 Lưu ý:</strong> Khi cả 3 EMA xếp thứ tự đẹp và giá nằm đúng phía → xu hướng rất mạnh, confidence cao. Chỉ cần kiên nhẫn chờ pullback về vùng hỗ trợ/kháng cự.</div>
     </article>
   );
 }
 
-function KtrSection() {
+function Step2() {
   return (
     <article style={S.article}>
-      <h3 style={S.h3}>📊 KTR & MLP — Mục Tiêu Chốt Lời & Xác Nhận Xu Hướng</h3>
+      <h3 style={S.h3}>🔑 Bước 2: Khoanh Vùng Hỗ Trợ / Kháng Cự</h3>
+      <p style={S.p}>Chuyển qua khung entry (H4, H1, H2 — tùy style), dùng indicator Key Level để xác định vùng giá quan trọng phía trước.</p>
       <div style={S.infoBox}>
-        <h4 style={S.h4}>📐 MLP (Mid-Level Price)</h4>
-        <p style={S.p}>Mức giá trung bình giữa OP hôm nay và giá đóng cửa phiên trước. Dùng để xác nhận sức mạnh xu hướng:</p>
+        <h4 style={S.h4}>Vùng tĩnh (Key Levels cứng):</h4>
         <ul style={S.ul}>
-          <li>🔥 <strong>Uptrend bền vững:</strong> Giá nằm <strong>TRÊN cả OP và MLP</strong></li>
-          <li>❄️ <strong>Downtrend tuyệt đối:</strong> Giá nằm <strong>DƯỚI cả OP và MLP</strong></li>
-          <li>⚠️ Giá giữa OP và MLP = tín hiệu yếu, cần thêm hợp lưu</li>
+          <li><span style={{color:'#22c55e'}}>🟢 Hỗ trợ cứng (Xanh)</span> — Vùng giá đã phản ứng TĂNG nhiều lần trong lịch sử</li>
+          <li><span style={{color:'#ef4444'}}>🔴 Kháng cự cứng (Đỏ)</span> — Vùng giá đã phản ứng GIẢM nhiều lần trong lịch sử</li>
+          <li>Càng nhiều lần test (touches) → vùng càng mạnh</li>
         </ul>
       </div>
       <div style={S.infoBox}>
-        <h4 style={S.h4}>📊 KTR (Volatility Statistics / Projected Range)</h4>
-        <p style={S.p}>Các mốc biên độ biến động tính từ ATR phiên trước, cố định suốt ngày. Đây là "bản đồ chốt lời":</p>
-        <div style={{display:'flex',gap:'10px',marginBottom:'12px',flexWrap:'wrap'}}>
-          <div style={{flex:1,minWidth:'140px',background:'rgba(34,197,94,0.1)',border:'1px solid #22c55e40',borderRadius:'8px',padding:'10px',textAlign:'center'}}>
-            <div style={{color:'#22c55e',fontWeight:'bold'}}>Lệnh BUY</div>
-            <div style={{fontSize:'0.8rem',color:'#cbd5e1',marginTop:'4px'}}>TP1: KTR+1<br/>TP2: KTR+2<br/>TP3: KTR+3</div>
+        <h4 style={S.h4}>Vùng động (EMA):</h4>
+        <ul style={S.ul}>
+          <li><span style={{color:'#f97316'}}>EMA 34 (Cam)</span> — Hỗ trợ/kháng cự di chuyển theo giá, nhạy nhất</li>
+          <li><span style={{color:'#3b82f6'}}>EMA 89 (Xanh)</span> — Vùng quan trọng hơn khi giá pullback sâu</li>
+          <li><span style={{color:'#a855f7'}}>EMA 200 (Tím)</span> — Hỗ trợ/kháng cự cực mạnh, giá hiếm khi xuyên qua dễ dàng</li>
+        </ul>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Cách khoanh vùng hiệu quả:</h4>
+        <ul style={S.ul}>
+          <li>Chỉ chọn <strong>2-3 vùng quan trọng nhất</strong> phía trước giá hiện tại</li>
+          <li>Không ôm đồm quá nhiều vùng gây rối mắt</li>
+          <li>Ưu tiên vùng có nhiều lần test + volume cao khi test</li>
+          <li>Vùng có sự hợp lưu giữa Key Level tĩnh + EMA → cực mạnh</li>
+        </ul>
+      </div>
+      <div style={S.tipBox}><strong>💡 Mẹo:</strong> Khi Key Level trùng với EMA (VD: support cứng nằm ngay EMA89), đó là "vùng hợp lưu" — khả năng giá phản ứng rất cao, ưu tiên trade tại đây.</div>
+    </article>
+  );
+}
+
+function Step3() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🕯️ Bước 3: Chờ Giá Về Vùng + Nến Đảo Chiều</h3>
+      <p style={S.p}>Đây là bước quyết định 80% hiệu quả. <strong>Kiên nhẫn là chìa khóa.</strong> Khi giá chạm vào vùng đã khoanh, quan sát nến đảo chiều.</p>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Khi nào tìm nến đảo chiều?</h4>
+        <ul style={S.ul}>
+          <li>📈 Xu hướng TĂNG + Giá về <strong>hỗ trợ</strong> → Tìm nến đảo chiều <strong>tăng</strong> (bullish)</li>
+          <li>📉 Xu hướng GIẢM + Giá về <strong>kháng cự</strong> → Tìm nến đảo chiều <strong>giảm</strong> (bearish)</li>
+        </ul>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Các mô hình nến đảo chiều mạnh:</h4>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
+          <div style={S.patternCard}>
+            <span style={{color:'#22c55e',fontWeight:'bold'}}>BULLISH (Tăng):</span>
+            <ul style={{...S.ul,fontSize:'0.78rem',marginTop:'4px'}}>
+              <li>🔨 Hammer (Búa)</li>
+              <li>🌅 Morning Star (Sao mai)</li>
+              <li>💪 Bullish Engulfing (Nhấn chìm tăng)</li>
+              <li>🔄 Bullish Harami</li>
+              <li>⚡ Bullish Kicker</li>
+              <li>📌 Inverted Hammer</li>
+            </ul>
           </div>
-          <div style={{flex:1,minWidth:'140px',background:'rgba(239,68,68,0.1)',border:'1px solid #ef444440',borderRadius:'8px',padding:'10px',textAlign:'center'}}>
-            <div style={{color:'#ef4444',fontWeight:'bold'}}>Lệnh SELL</div>
-            <div style={{fontSize:'0.8rem',color:'#cbd5e1',marginTop:'4px'}}>TP1: KTR-1<br/>TP2: KTR-2<br/>TP3: KTR-3</div>
+          <div style={S.patternCard}>
+            <span style={{color:'#ef4444',fontWeight:'bold'}}>BEARISH (Giảm):</span>
+            <ul style={{...S.ul,fontSize:'0.78rem',marginTop:'4px'}}>
+              <li>⭐ Shooting Star (Sao băng)</li>
+              <li>🌙 Evening Star (Sao hôm)</li>
+              <li>💀 Bearish Engulfing (Nhấn chìm giảm)</li>
+              <li>🔄 Bearish Harami</li>
+              <li>⚡ Bearish Kicker</li>
+              <li>🎪 Hanging Man</li>
+            </ul>
           </div>
         </div>
       </div>
-      <div style={S.ruleBox}>
-        <h4 style={S.h4}>Chiến lược chốt lời theo KTR:</h4>
-        <ul style={S.ul}>
-          <li><strong>KTR±1:</strong> Chốt <strong>70%</strong> khối lượng (tỷ lệ chạm ~80%)</li>
-          <li><strong>KTR±2:</strong> Chốt <strong>20%</strong> khối lượng (tỷ lệ chạm ~60-65%)</li>
-          <li><strong>KTR±3:</strong> Chốt <strong>10%</strong> còn lại (tỷ lệ chạm &gt;40%)</li>
-        </ul>
-      </div>
+      <div style={S.warningBox}><strong>⚠️ Quan trọng:</strong> Nến đảo chiều CHỈ có giá trị khi xuất hiện <strong>tại đúng vùng Key Level</strong>. Nến đảo chiều giữa chừng không có ý nghĩa.</div>
+      <div style={S.tipBox}><strong>💡 Wick touch:</strong> Nến có râu (wick) chạm vào Key Level hoặc EMA rồi bật ngược = xác nhận vùng đang hold. Tín hiệu mạnh hơn nhiều so với nến chỉ gần vùng.</div>
     </article>
   );
 }
 
-function DiamondSection() {
+function Step4() {
   return (
     <article style={S.article}>
-      <h3 style={S.h3}>💎 Kim Cương & EMA200 — Tín Hiệu Đảo Chiều Cực Mạnh</h3>
-      <div style={S.infoBox}>
-        <h4 style={S.h4}>💎 Chỉ Báo Kim Cương (Diamond Signal)</h4>
-        <p style={S.p}>Xuất hiện khi dòng tiền thông minh tạo áp lực cực hạn tại vùng giá nén. Khi kim cương xuất hiện, nó vẽ ra đường <strong>DML (Diamond Line)</strong> tại giá đóng cửa nến đó.</p>
-        <ul style={S.ul}>
-          <li>💎 <strong>Buy cực mạnh:</strong> Nến vàng đóng cửa vượt TRÊN DML + Giá trên OP</li>
-          <li>💎 <strong>Sell cực mạnh:</strong> Nến đỏ đóng cửa thủng DƯỚI DML + Giá dưới OP</li>
-          <li>⚠️ <strong>Kim Cương Lồng:</strong> Khi xuất hiện kim cương thứ 2 ngược chiều → chốt lời hoặc kéo SL về entry ngay</li>
-        </ul>
-      </div>
-      <div style={S.infoBox}>
-        <h4 style={S.h4}>📐 EMA200 — Xu Hướng Dài Hạn</h4>
-        <p style={S.p}>EMA200 là đường xu hướng dài hạn (Daily). Trade thuận hướng EMA200 giúp tăng confidence đáng kể:</p>
-        <ul style={S.ul}>
-          <li>Giá <strong>TRÊN</strong> EMA200 + BUY = <span style={{color:'#22c55e'}}>+10% confidence</span></li>
-          <li>Giá <strong>DƯỚI</strong> EMA200 + SELL = <span style={{color:'#22c55e'}}>+10% confidence</span></li>
-          <li>Trade ngược EMA200 = <span style={{color:'#ef4444'}}>giảm độ tin cậy, cần nhiều hợp lưu hơn</span></li>
-        </ul>
-      </div>
-    </article>
-  );
-}
-
-function EntrySection() {
-  return (
-    <article style={S.article}>
-      <h3 style={S.h3}>⚡ Cách Vào Lệnh — Tam Điểm Hội Tụ</h3>
-      <p style={S.p}>Hệ thống CRAZII yêu cầu ít nhất 3 điều kiện hội tụ trước khi vào lệnh. Càng nhiều hợp lưu, tín hiệu càng mạnh.</p>
+      <h3 style={S.h3}>⚡ Bước 4: Xác Nhận + Vào Lệnh</h3>
+      <p style={S.p}>Khi nến đảo chiều đóng rõ ràng tại vùng giá, setup vào lệnh như sau:</p>
       <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
-        <div style={{flex:1,minWidth:'280px',background:'rgba(34,197,94,0.05)',border:'1px solid #22c55e40',borderRadius:'10px',padding:'16px'}}>
-          <h4 style={{color:'#22c55e',margin:'0 0 10px'}}>🟢 Tam Điểm Hội Tụ BUY</h4>
-          <ol style={{...S.ul,paddingLeft:'20px'}}>
-            <li>✅ 3-4 cây nến <strong>VÀNG</strong> tăng dần liên tiếp</li>
-            <li>✅ Giá đóng <strong>TRÊN OP</strong></li>
-            <li>✅ KSI <strong>Xanh</strong> (Cá mập đang gom)</li>
-            <li>✅ KCX <strong>Đen</strong> (Nhỏ lẻ đang mua đuổi)</li>
-          </ol>
-          <div style={{marginTop:'10px',padding:'8px',background:'#0f172a',borderRadius:'6px',fontSize:'0.8rem',color:'#94a3b8'}}>
-            <strong>SL:</strong> Dưới cụm nến vàng (đáy swing)<br/>
-            <strong>TP:</strong> 1R trở lên hoặc gồng tới KTR+1/+2
-          </div>
+        <div style={{flex:1,minWidth:'250px',background:'rgba(34,197,94,0.05)',border:'1px solid #22c55e40',borderRadius:'10px',padding:'16px'}}>
+          <h4 style={{color:'#22c55e',margin:'0 0 10px'}}>🟢 Setup BUY</h4>
+          <ul style={{...S.ul,fontSize:'0.82rem'}}>
+            <li><strong>Entry:</strong> Ngay giá đóng nến đảo chiều bullish</li>
+            <li><strong>SL:</strong> Dưới chân râu nến đảo chiều (+ buffer nhỏ)</li>
+            <li><strong>TP:</strong> Key Level kháng cự tiếp theo phía trên</li>
+          </ul>
         </div>
-        <div style={{flex:1,minWidth:'280px',background:'rgba(239,68,68,0.05)',border:'1px solid #ef444440',borderRadius:'10px',padding:'16px'}}>
-          <h4 style={{color:'#ef4444',margin:'0 0 10px'}}>🔴 Tam Điểm Hội Tụ SELL</h4>
-          <ol style={{...S.ul,paddingLeft:'20px'}}>
-            <li>✅ 3-4 cây nến <strong>ĐỎ</strong> giảm dần liên tiếp</li>
-            <li>✅ Giá đóng <strong>DƯỚI OP</strong></li>
-            <li>✅ KSI <strong>Đỏ</strong> (Cá mập đang xả)</li>
-            <li>✅ KCX <strong>Xanh dương</strong> (Nhỏ lẻ đang bán tháo)</li>
-          </ol>
-          <div style={{marginTop:'10px',padding:'8px',background:'#0f172a',borderRadius:'6px',fontSize:'0.8rem',color:'#94a3b8'}}>
-            <strong>SL:</strong> Trên cụm nến đỏ (đỉnh swing)<br/>
-            <strong>TP:</strong> 1R trở lên hoặc gồng tới KTR-1/-2
+        <div style={{flex:1,minWidth:'250px',background:'rgba(239,68,68,0.05)',border:'1px solid #ef444440',borderRadius:'10px',padding:'16px'}}>
+          <h4 style={{color:'#ef4444',margin:'0 0 10px'}}>🔴 Setup SELL</h4>
+          <ul style={{...S.ul,fontSize:'0.82rem'}}>
+            <li><strong>Entry:</strong> Ngay giá đóng nến đảo chiều bearish</li>
+            <li><strong>SL:</strong> Trên đỉnh râu nến đảo chiều (+ buffer nhỏ)</li>
+            <li><strong>TP:</strong> Key Level hỗ trợ tiếp theo phía dưới</li>
+          </ul>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Xử lý SL khi vùng có sideway:</h4>
+        <p style={{...S.p,margin:'4px 0 8px'}}>Nếu vùng Key Level đó có nhiều cây nến thả râu (sideway nén):</p>
+        <ul style={S.ul}>
+          <li>Tìm cây nến có râu <strong>dài nhất</strong> trong vùng sideway đó</li>
+          <li>Đặt SL ngay sau chân râu của cây nến dài nhất</li>
+          <li>Lý do: Tránh bị quét SL bởi nhiễu khi giá test lại vùng</li>
+        </ul>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Volume xác nhận (bonus):</h4>
+        <ul style={S.ul}>
+          <li>Nến đảo chiều có volume cao (&gt;1.5x trung bình) = xác nhận mạnh</li>
+          <li>Volume thấp tại nến đảo chiều = cẩn trọng, có thể chỉ là noise</li>
+          <li>Volume tăng dần khi giá rời khỏi vùng = xác nhận vùng hold tốt</li>
+        </ul>
+      </div>
+      <div style={S.tipBox}><strong>💡 Pro tip:</strong> Không nhất thiết phải chờ nến đảo chiều "kinh điển". Nếu giá tạo cấu trúc đẹp tại vùng (VD: false break rồi đóng lại trong vùng) → cũng là tín hiệu tốt. Tuy nhiên cần backtest nhiều để nhận diện pattern này.</div>
+    </article>
+  );
+}
+
+function MtfSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🔍 Multi-Timeframe Analysis</h3>
+      <p style={S.p}>Phân tích đa khung thời gian giúp tăng tỷ lệ thắng đáng kể. Quy trình từ lớn đến nhỏ:</p>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Quy trình 3 bước MTF:</h4>
+        <div style={{display:'flex',flexDirection:'column',gap:'12px',marginTop:'8px'}}>
+          <div style={{display:'flex',gap:'10px',alignItems:'flex-start'}}>
+            <span style={{background:'#3b82f620',color:'#3b82f6',padding:'2px 8px',borderRadius:'4px',fontWeight:'bold',fontSize:'0.8rem',flexShrink:0}}>W1</span>
+            <div>
+              <strong style={{color:'#e2e8f0',fontSize:'0.85rem'}}>Nến Tuần — Bức tranh lớn</strong>
+              <ul style={{...S.ul,fontSize:'0.78rem',marginTop:'4px'}}>
+                <li>Xem xu hướng tổng thể đang tăng/giảm/sideway</li>
+                <li>Check mô hình kinh điển: 2 đỉnh, 2 đáy, 3 đỉnh, Head & Shoulders...</li>
+                <li>Cấu trúc Higher Highs + Higher Lows = uptrend bền vững</li>
+                <li>Cấu trúc Lower Highs + Lower Lows = downtrend bền vững</li>
+              </ul>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'10px',alignItems:'flex-start'}}>
+            <span style={{background:'#a855f720',color:'#a855f7',padding:'2px 8px',borderRadius:'4px',fontWeight:'bold',fontSize:'0.8rem',flexShrink:0}}>D1</span>
+            <div>
+              <strong style={{color:'#e2e8f0',fontSize:'0.85rem'}}>Nến Ngày — Xu hướng & Volume</strong>
+              <ul style={{...S.ul,fontSize:'0.78rem',marginTop:'4px'}}>
+                <li>Xu hướng hiện tại: giá đang tăng/giảm trên D1?</li>
+                <li>Volume: vol mua cao hay vol bán cao?</li>
+                <li>Vol bán/mua đã giảm dần chưa → cơ sở cho đảo chiều/hồi</li>
+                <li>Giá có đang gần vùng S/R quan trọng nào trên D1 không?</li>
+              </ul>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'10px',alignItems:'flex-start'}}>
+            <span style={{background:'#22c55e20',color:'#22c55e',padding:'2px 8px',borderRadius:'4px',fontWeight:'bold',fontSize:'0.8rem',flexShrink:0}}>H4</span>
+            <div>
+              <strong style={{color:'#e2e8f0',fontSize:'0.85rem'}}>Nến 4H — Khung Entry</strong>
+              <ul style={{...S.ul,fontSize:'0.78rem',marginTop:'4px'}}>
+                <li>Đợi nến đảo chiều tại vùng hỗ trợ/kháng cự</li>
+                <li>Setup vào lệnh khi nến H4 đóng xác nhận</li>
+                <li>Scan vào khung giờ H4 đóng nến: 7h, 11h, 15h, 19h, 23h, 3h</li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
-      <div style={S.warningBox}>
-        <strong>⚠️ Tuyệt đối KHÔNG vào lệnh khi:</strong>
-        <ul style={{...S.ul,marginTop:'6px'}}>
-          <li>Nến Zebra (sideway nén) — đứng ngoài chờ</li>
-          <li>Giá ngược luật OP (VD: muốn BUY nhưng giá dưới OP)</li>
-          <li>KSI và màu nến trái chiều nhau</li>
-          <li>Ngoài khung giờ GTH tốt (6-11h, 20-00h)</li>
+      <div style={S.warningBox}><strong>⚠️ Lưu ý:</strong> Không bao giờ trade ngược xu hướng W1/D1. Nếu W1 đang downtrend rõ ràng, H4 có tín hiệu BUY cũng chỉ là pullback ngắn — rủi ro cao.</div>
+    </article>
+  );
+}
+
+function RulesSection() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>🚫 Nguyên Tắc Bất Biến — KHÔNG BAO GIỜ PHÁ</h3>
+      <div style={{...S.warningBox,border:'2px solid #ef444450'}}>
+        <ul style={{...S.ul,fontSize:'0.9rem'}}>
+          <li>🚫 <strong>Không SELL</strong> khi giá đang gần vùng Hỗ trợ</li>
+          <li>🚫 <strong>Không BUY</strong> khi giá đang gần vùng Kháng cự</li>
+        </ul>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Điều kiện KHÔNG vào lệnh:</h4>
+        <ul style={S.ul}>
+          <li>❌ Giá đang sideway giữa 2 vùng (không có xu hướng rõ)</li>
+          <li>❌ Nến đảo chiều xuất hiện giữa chừng (không tại vùng Key Level)</li>
+          <li>❌ Xu hướng D1/W1 ngược với hướng muốn trade</li>
+          <li>❌ Volume quá thấp (thiếu thanh khoản, dễ bị manipulation)</li>
+          <li>❌ R:R không đạt tối thiểu 1.5 (risk quá lớn so với reward)</li>
+          <li>❌ Đang có tin tức lớn sắp ra (FOMC, CPI, NFP...)</li>
+        </ul>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Mindset đúng:</h4>
+        <ul style={S.ul}>
+          <li>Không cần trade mỗi ngày. Chất lượng &gt; số lượng</li>
+          <li>Bỏ lỡ cơ hội còn tốt hơn vào sai lệnh</li>
+          <li>Tuân thủ kỷ luật 100% — không có ngoại lệ</li>
+          <li>Mỗi lệnh thua đều phải ghi chú lý do vào Journal để học</li>
         </ul>
       </div>
     </article>
   );
 }
 
-function TpSlSection() {
+function RrSection() {
   return (
     <article style={S.article}>
-      <h3 style={S.h3}>🎯 Cách Đặt TP/SL — Quản Lý Rủi Ro</h3>
-      <p style={S.p}>Quản lý vốn là yếu tố sống còn. CRAZII áp dụng nguyên tắc R:R (Risk:Reward) nghiêm ngặt để bảo vệ tài khoản.</p>
+      <h3 style={S.h3}>💰 Quản Lý Vốn & Risk:Reward</h3>
+      <p style={S.p}>Quản lý vốn quyết định bạn tồn tại được bao lâu trong thị trường. Dù win rate 60% nhưng R:R xấu vẫn thua dài hạn.</p>
       <div style={S.ruleBox}>
-        <h4 style={S.h4}>📍 Cách đặt Stop Loss (SL):</h4>
-        <ul style={S.ul}>
-          <li><strong>Lệnh BUY:</strong> SL đặt dưới đáy cụm nến vàng (swing low) hoặc dưới Key Level hỗ trợ gần nhất</li>
-          <li><strong>Lệnh SELL:</strong> SL đặt trên đỉnh cụm nến đỏ (swing high) hoặc trên Key Level kháng cự gần nhất</li>
-          <li>Thêm buffer 0.5-1% để tránh bị quét SL do nhiễu</li>
-        </ul>
-      </div>
-      <div style={S.ruleBox}>
-        <h4 style={S.h4}>🎯 Cách đặt Take Profit (TP):</h4>
-        <ul style={S.ul}>
-          <li><strong>TP1 (Chốt 70%):</strong> Tại KTR±1 — mức an toàn nhất, tỷ lệ chạm ~80%</li>
-          <li><strong>TP2 (Chốt 20%):</strong> Tại KTR±2 — mức vừa phải, tỷ lệ chạm ~60%</li>
-          <li><strong>TP3 (Chốt 10%):</strong> Tại KTR±3 — gồng xa, tỷ lệ chạm ~40%</li>
-          <li>Hoặc dùng Key Level (support/resistance) gần nhất làm TP</li>
-        </ul>
-      </div>
-      <div style={S.infoBox}>
-        <h4 style={S.h4}>📐 Nguyên tắc R:R tối thiểu:</h4>
+        <h4 style={S.h4}>Nguyên tắc R:R:</h4>
         <ul style={S.ul}>
           <li>R:R tối thiểu <strong>1:1.5</strong> mới được vào lệnh</li>
           <li>R:R lý tưởng: <strong>1:2</strong> trở lên</li>
-          <li>Nếu SL quá rộng mà TP không đạt 1.5R → <strong>bỏ qua tín hiệu</strong></li>
+          <li>Nếu SL quá rộng mà TP không đạt 1.5R → <strong>bỏ qua</strong></li>
+        </ul>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Chiến lược chốt lời:</h4>
+        <ul style={S.ul}>
+          <li><strong>TP1 (Chốt 50-70%):</strong> Key Level gần nhất — an toàn, tỷ lệ chạm cao</li>
+          <li><strong>TP2 (Chốt 20-30%):</strong> Key Level tiếp theo — gồng thêm nếu trend mạnh</li>
+          <li><strong>Trailing (10% còn lại):</strong> Kéo SL theo EMA34 — maximize profit khi trend kéo dài</li>
         </ul>
       </div>
       <div style={S.tipBox}>
-        <strong>💡 Mẹo nâng cao:</strong> Khi giá chạm TP1, kéo SL về entry (breakeven) cho phần còn lại. Như vậy bạn đã "free trade" — không thể thua được nữa.
+        <strong>💡 Breakeven rule:</strong> Khi giá chạm TP1, kéo SL về entry (breakeven) cho phần còn lại. Lúc này bạn đã "free trade" — chỉ có thể win hoặc hòa, không thể thua.
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Risk per trade:</h4>
+        <ul style={S.ul}>
+          <li>Tối đa <strong>1-2%</strong> tài khoản mỗi lệnh</li>
+          <li>Tối đa <strong>3-5%</strong> tổng risk mở cùng lúc</li>
+          <li>Thua 3 lệnh liên tiếp → nghỉ 1 ngày, review Journal</li>
+        </ul>
       </div>
       <div style={{marginTop:'16px',padding:'12px',background:'#1e293b40',borderRadius:'8px',border:'1px dashed #64748b'}}>
-        <p style={{color:'#94a3b8',fontSize:'0.82rem',margin:0}}>📝 <em>Phần này sẽ được cập nhật thêm kiến thức chi tiết về quản lý vốn, position sizing và trailing stop trong tương lai.</em></p>
+        <p style={{color:'#94a3b8',fontSize:'0.82rem',margin:0}}>📝 <em>Nội dung sẽ được cập nhật thêm: Position sizing nâng cao, trailing stop strategies, correlation risk management.</em></p>
       </div>
     </article>
   );
@@ -343,9 +394,5 @@ const S: Record<string, React.CSSProperties> = {
   infoBox: { background: '#0f172a', border: '1px solid #1e2d4a', borderRadius: '10px', padding: '14px 16px', margin: '14px 0' },
   tipBox: { background: 'rgba(59,130,246,0.08)', border: '1px solid #3b82f640', borderRadius: '8px', padding: '12px 14px', margin: '14px 0', fontSize: '0.85rem', color: '#93c5fd', lineHeight: '1.6' },
   warningBox: { background: 'rgba(239,68,68,0.06)', border: '1px solid #ef444430', borderRadius: '8px', padding: '12px 14px', margin: '14px 0', fontSize: '0.85rem', color: '#fca5a5', lineHeight: '1.6' },
-  grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px', marginTop: '8px' },
-  miniCard: { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '10px', fontSize: '0.82rem', lineHeight: '1.5', color: '#e2e8f0' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginTop: '8px' },
-  th: { textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #334155', color: '#94a3b8', fontWeight: 600 },
-  td: { padding: '6px 8px', borderBottom: '1px solid #1e2d4a20', color: '#cbd5e1' },
+  patternCard: { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '10px', fontSize: '0.82rem' },
 };

@@ -96,7 +96,6 @@ export async function loadAllSignals(): Promise<TrackedSignal[]> {
     writeCache(signals);
     return signals;
   } catch {
-    console.warn('[signalTracker] MongoDB unavailable, using cache');
     return readCache();
   }
 }
@@ -115,11 +114,11 @@ export async function addSignal(signal: TrackedSignal): Promise<void> {
     const updated = [signal, ...cache];
     writeCache(updated);
   }
-  // Sync to MongoDB
+  // Sync to MongoDB (best effort)
   try {
     await apiFetch('/api/kl-signals', { method: 'POST', body: JSON.stringify(signal) });
-  } catch (err) {
-    console.warn('[signalTracker] Failed to sync to MongoDB:', err);
+  } catch {
+    // Silently fail - localStorage is the source of truth
   }
 }
 
@@ -130,11 +129,13 @@ export async function updateSignal(id: string, updates: Partial<TrackedSignal>):
   const idx = cache.findIndex(s => s.id === id);
   if (idx >= 0) { cache[idx] = { ...cache[idx], ...updates }; writeCache(cache); }
 
-  // Sync to MongoDB
+  // Sync to MongoDB (skip if id is not a valid ObjectId format)
+  const isMongoId = /^[0-9a-fA-F]{24}$/.test(id);
+  if (!isMongoId) return; // Local-only signal, no need to sync
   try {
     await apiFetch('/api/kl-signals', { method: 'PUT', body: JSON.stringify({ id, ...updates }) });
-  } catch (err) {
-    console.warn('[signalTracker] Failed to update MongoDB:', err);
+  } catch {
+    // Silently fail - localStorage is the source of truth when MongoDB unavailable
   }
 }
 
@@ -142,11 +143,13 @@ export async function updateSignal(id: string, updates: Partial<TrackedSignal>):
 export async function deleteSignal(id: string): Promise<void> {
   // Optimistic update cache
   writeCache(readCache().filter(s => s.id !== id));
-  // Sync to MongoDB
+  // Sync to MongoDB (skip if not a valid ObjectId)
+  const isMongoId = /^[0-9a-fA-F]{24}$/.test(id);
+  if (!isMongoId) return;
   try {
     await apiFetch(`/api/kl-signals?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-  } catch (err) {
-    console.warn('[signalTracker] Failed to delete from MongoDB:', err);
+  } catch {
+    // Silently fail
   }
 }
 

@@ -289,6 +289,31 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     return () => { cancelled = true; };
   }, [symbol, timeframe]);
 
+  // Auto-save tín hiệu mới vào Journal (chỉ signal trong 5 nến gần nhất)
+  useEffect(() => {
+    if (!result || candles.length === 0) return;
+    const freshSignals = result.signals.filter(sig => {
+      // Chỉ auto-save signal ở 5 nến cuối cùng (rất mới)
+      const lastTime = candles[candles.length - 1].time;
+      const candleDuration = candles.length > 1 ? candles[1].time - candles[0].time : 3600;
+      return sig.time >= lastTime - candleDuration * 5;
+    });
+
+    for (const sig of freshSignals) {
+      const sigKey = `${symbol}_${sig.time}_${sig.side}`;
+      if (savedSignalIds.has(sigKey)) continue;
+
+      // Auto-save vào journal
+      const tracked = createTrackedSignal(
+        sig, symbol, timeframe, candles, result.emaData,
+        result.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1
+      );
+      addSignal(tracked);
+      setSavedSignalIds(prev => new Set([...prev, sigKey]));
+    }
+    if (freshSignals.length > 0) refreshJournal();
+  }, [result, symbol, timeframe, candles, savedSignalIds, refreshJournal]);
+
   // Auto-track pending signals (check TP/SL) every 30s
   useEffect(() => {
     const check = async () => {
@@ -316,6 +341,116 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     const interval = setInterval(check, 30000);
     return () => clearInterval(interval);
   }, [refreshJournal]);
+
+  // Scanner - Cache-based dashboard
+  // Kết quả scan lưu vào localStorage, auto-scan H4 tự cập nhật
+  const SCAN_CACHE_KEY = 'kl_scan_results';
+
+  const loadCachedScanResults = useCallback((): ScanResult[] => {
+    try {
+      const raw = localStorage.getItem(SCAN_CACHE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  }, []);
+
+
+  const runScanner = useCallback(async () => {
+    setScanning(true);
+    const coins = COIN_LIST; // Luôn scan tất cả coin
+    const results: ScanResult[] = [];
+    for (const coin of coins) {
+      try {
+        const data = await fetchCandles(coin.value, '4h', 500);
+        if (data.length > 50) {
+          const analysis = calculateKeyLevelSystem(data);
+          const topSignal = analysis.signals[0];
+          results.push({ symbol: coin.value, label: coin.label, trend: analysis.trend.direction, signals: analysis.signals.slice(0, 1), lastPrice: data[data.length - 1].close, loading: false });
+
+          // Auto-save signal mới vào Journal nếu có
+          if (topSignal) {
+            const sigKey = `${coin.value}_${topSignal.time}_${topSignal.side}`;
+            if (!savedSignalIds.has(sigKey)) {
+              const tracked = createTrackedSignal(
+                topSignal, coin.value, '4h', data, analysis.emaData,
+                analysis.volumeAnalysis[data.length - 1]?.volumeRatio ?? 1
+              );
+              addSignal(tracked);
+              setSavedSignalIds(prev => new Set([...prev, sigKey]));
+            }
+          }
+        }
+      } catch { /* skip */ }
+      await new Promise(r => setTimeout(r, 150));
+    }
+    const sorted = results.sort((a, b) => (b.signals[0]?.confidence ?? 0) - (a.signals[0]?.confidence ?? 0));
+    setScanResults(sorted);
+    localStorage.setItem(SCAN_CACHE_KEY, JSON.stringify(sorted));
+    localStorage.setItem('kl_last_autoscan_time', String(Date.now()));
+    setLastAutoScan(Date.now());
+    setScanning(false);
+    refreshJournal();
+  }, [savedSignalIds, refreshJournal]);
+
+  // Load cached results on mount
+  useEffect(() => {
+    const cached = loadCachedScanResults();
+    if (cached.length > 0) {
+      setScanResults(cached);
+    }
+    const lastTime = localStorage.getItem('kl_last_autoscan_time');
+    if (lastTime) setLastAutoScan(Number(lastTime));
+  }, [loadCachedScanResults]);
+
+  // Auto-scan scheduler: Tự scan tất cả coin khi H4 đóng nến (7h, 11h, 15h, 19h, 23h, 3h GMT+7)
+  const [lastAutoScan, setLastAutoScan] = useState<number>(0);
+  const [autoScanEnabled, setAutoScanEnabled] = useState(() => {
+    try { return localStorage.getItem('kl_auto_scan') !== 'false'; } catch { return true; }
+  });
+
+  useEffect(() => {
+    if (!autoScanEnabled) return;
+
+    const checkH4Close = () => {
+      const now = new Date();
+      const gmt7Hour = (now.getUTCHours() + 7) % 24;
+      const h4Hours = [3, 7, 11, 15, 19, 23]; // H4 đóng nến tại các giờ này (GMT+7)
+      const minute = now.getMinutes();
+
+      // Chỉ chạy trong 2 phút đầu sau khi H4 đóng nến
+      if (h4Hours.includes(gmt7Hour) && minute <= 2) {
+        const scanKey = `${now.toDateString()}_${gmt7Hour}`;
+        const lastKey = localStorage.getItem('kl_last_autoscan');
+        if (lastKey !== scanKey) {
+          localStorage.setItem('kl_last_autoscan', scanKey);
+          runScanner(); // Auto-scan tất cả coin
+        }
+      }
+    };
+
+    checkH4Close(); // Check ngay khi mount
+    const interval = setInterval(checkH4Close, 60000); // Check mỗi phút
+    return () => clearInterval(interval);
+  }, [autoScanEnabled, runScanner]);
+
+  // Multi-timeframe context cho coin hiện tại
+  const [mtfContext, setMtfContext] = useState<{ daily: { trend: string; volumeTrend: string; avgVolRatio: number } | null; weekly: { trend: string; structure: string } | null }>({ daily: null, weekly: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [dailyData, weeklyData] = await Promise.all([
+          fetchCandles(symbol, '1d', 50),
+          fetchCandles(symbol, '1w', 20),
+        ]);
+        if (cancelled) return;
+        const { analyzeMultiTimeframe } = await import('../utils/keyLevelEngine');
+        const ctx = analyzeMultiTimeframe(dailyData, weeklyData);
+        setMtfContext(ctx);
+      } catch { /* skip */ }
+    })();
+    return () => { cancelled = true; };
+  }, [symbol]);
 
   const coinLabel = COIN_LIST.find(c => c.value === symbol)?.label || symbol;
 
@@ -372,24 +507,6 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     a.download = `kl_training_${Date.now()}.jsonl`; a.click();
   };
 
-  // Scanner
-  const runScanner = useCallback(async () => {
-    setScanning(true);
-    const coins = scanFilter === 'all' ? COIN_LIST : COIN_LIST.filter(c => c.category === scanFilter);
-    const results: ScanResult[] = [];
-    for (const coin of coins) {
-      try {
-        const data = await fetchCandles(coin.value, timeframe, 500);
-        if (data.length > 50) {
-          const analysis = calculateKeyLevelSystem(data);
-          results.push({ symbol: coin.value, label: coin.label, trend: analysis.trend.direction, signals: analysis.signals.slice(0, 3), lastPrice: data[data.length - 1].close, loading: false });
-        }
-      } catch { /* skip */ }
-      await new Promise(r => setTimeout(r, 200));
-    }
-    setScanResults(results.sort((a, b) => (b.signals[0]?.confidence ?? 0) - (a.signals[0]?.confidence ?? 0)));
-    setScanning(false);
-  }, [timeframe, scanFilter]);
 
   const trendBadge = (dir: TrendDirection) => {
     const c: Record<TrendDirection, string> = { uptrend: '#22c55e', downtrend: '#ef4444', sideway: '#eab308' };
@@ -482,7 +599,48 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                           <input type="checkbox" checked={showSignals} onChange={e => setShowSignals(e.target.checked)} style={S.toggleCheckbox} />
                           <span style={{ color: '#3b82f6' }}>🎯 Signals</span>
                         </label>
+                        <label style={S.toggleLabel}>
+                          <input type="checkbox" checked={autoScanEnabled} onChange={e => { setAutoScanEnabled(e.target.checked); localStorage.setItem('kl_auto_scan', String(e.target.checked)); }} style={S.toggleCheckbox} />
+                          <span style={{ color: '#a855f7' }}>⏰ Auto-scan H4</span>
+                        </label>
                       </div>
+
+                      {/* Multi-timeframe Context */}
+                      {mtfContext.daily && (
+                        <div style={S.overlaySection}>
+                          <div style={S.overlayTitle}>🔍 MTF Context</div>
+                          <div style={S.overlayEmaRow}>
+                            <span>D1:</span>
+                            <span style={{ color: mtfContext.daily.trend === 'uptrend' ? '#22c55e' : mtfContext.daily.trend === 'downtrend' ? '#ef4444' : '#eab308' }}>
+                              {mtfContext.daily.trend === 'uptrend' ? '⬆️' : mtfContext.daily.trend === 'downtrend' ? '⬇️' : '↔️'}
+                            </span>
+                          </div>
+                          <div style={S.overlayEmaRow}>
+                            <span>Vol:</span>
+                            <span style={{ color: mtfContext.daily.volumeTrend === 'buying' ? '#22c55e' : mtfContext.daily.volumeTrend === 'selling' ? '#ef4444' : '#94a3b8' }}>
+                              {mtfContext.daily.volumeTrend === 'buying' ? '🟢 Mua' : mtfContext.daily.volumeTrend === 'selling' ? '🔴 Bán' : '⚪ Cân bằng'}
+                            </span>
+                          </div>
+                          {mtfContext.weekly && (
+                            <>
+                              <div style={S.overlayEmaRow}>
+                                <span>W1:</span>
+                                <span style={{ color: mtfContext.weekly.trend === 'uptrend' ? '#22c55e' : mtfContext.weekly.trend === 'downtrend' ? '#ef4444' : '#eab308' }}>
+                                  {mtfContext.weekly.trend === 'uptrend' ? '⬆️' : mtfContext.weekly.trend === 'downtrend' ? '⬇️' : '↔️'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>
+                                {mtfContext.weekly.structure === 'double_top_risk' ? '⚠️ 2 đỉnh (rủi ro)' :
+                                 mtfContext.weekly.structure === 'double_bottom_potential' ? '💡 2 đáy (tiềm năng)' :
+                                 mtfContext.weekly.structure === 'triple_top_risk' ? '🚨 3 đỉnh' :
+                                 mtfContext.weekly.structure === 'triple_bottom_potential' ? '💎 3 đáy' :
+                                 mtfContext.weekly.structure === 'higher_highs_lows' ? '📈 HH + HL' :
+                                 mtfContext.weekly.structure === 'lower_highs_lows' ? '📉 LH + LL' : '— Trending'}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       {/* Key Levels */}
                       <div style={S.overlaySection}>
@@ -548,36 +706,62 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
               )}
             </div>
             <div style={S.chartHintBar}>
-              <p style={S.chartHint}>� Chart tự vẽ Key Levels (đường ngang), EMA 34/89/200, Pattern markers & Signal arrows trực tiếp.</p>
+              <p style={S.chartHint}>📊 Chart tự vẽ Key Levels, EMA 34/89/200, Pattern markers & Signal arrows. Tín hiệu mới tự lưu vào Journal.</p>
             </div>
           </div>
         )}
 
-        {/* ===== SCANNER ===== */}
+        {/* ===== SCANNER (Dashboard) ===== */}
         {activeTab === 'scanner' && (
           <div style={S.panel}>
             <div style={S.scannerHeader}>
-              <div style={S.filterGroup}>
-                {(['all', 'top10', 'top20', 'top30', 'eth'] as const).map(f => (
-                  <button key={f} onClick={() => setScanFilter(f)} style={{ ...S.filterBtn, ...(scanFilter === f ? S.filterBtnActive : {}) }}>
-                    {f === 'all' ? 'Tất cả' : f === 'eth' ? 'ETH Eco' : f.toUpperCase()}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: '0.9rem' }}>📡 Dashboard H4 Scan</span>
+                  {lastAutoScan > 0 && <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Cập nhật: {new Date(lastAutoScan).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>}
+                </div>
+                <div style={S.filterGroup}>
+                  {(['all', 'top10', 'top20', 'top30', 'eth'] as const).map(f => (
+                    <button key={f} onClick={() => setScanFilter(f)} style={{ ...S.filterBtn, ...(scanFilter === f ? S.filterBtnActive : {}) }}>
+                      {f === 'all' ? `Tất cả (${scanResults.length})` : f === 'eth' ? 'ETH Eco' : f.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button onClick={runScanner} disabled={scanning} style={S.primaryBtn}>{scanning ? '⏳ Đang scan...' : '🔍 Scan tất cả'}</button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+                <button onClick={runScanner} disabled={scanning} style={S.primaryBtn}>{scanning ? '⏳ Đang scan...' : '� Scan lại'}</button>
+                <span style={{ fontSize: '0.68rem', color: '#475569' }}>Auto-scan mỗi H4 close: {autoScanEnabled ? '✅ Bật' : '❌ Tắt'}</span>
+              </div>
             </div>
-            {scanResults.length === 0 && !scanning && <div style={S.emptyState}>Nhấn "Scan tất cả" để quét {scanFilter === 'all' ? COIN_LIST.length : COIN_LIST.filter(c => c.category === scanFilter).length} coin</div>}
+            {scanResults.length === 0 && !scanning && (
+              <div style={S.emptyState}>
+                <p>Chưa có dữ liệu scan.</p>
+                <p style={{ fontSize: '0.8rem', color: '#475569', marginTop: '8px' }}>Auto-scan sẽ chạy khi H4 đóng nến (7h, 11h, 15h, 19h, 23h, 3h).<br/>Hoặc nhấn "Scan lại" để scan ngay.</p>
+              </div>
+            )}
             <div style={S.scanGrid}>
-              {scanResults.map(sr => (
+              {(scanFilter === 'all' ? scanResults : scanResults.filter(sr => COIN_LIST.find(c => c.value === sr.symbol)?.category === scanFilter)).map(sr => (
                 <div key={sr.symbol} style={S.scanCard} onClick={() => { setSymbol(sr.symbol); setActiveTab('chart'); }}>
                   <div style={S.scanCardHeader}><span style={S.scanCoinName}>{sr.label}</span>{trendBadge(sr.trend)}</div>
-                  <div style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '8px' }}>${fmtPrice(sr.lastPrice)}</div>
-                  {sr.signals.length > 0 ? sr.signals.map((sig, i) => (
-                    <div key={i} style={{ ...S.scanSigItem, borderColor: sig.side === 'buy' ? '#22c55e40' : '#ef444440' }}>
-                      <span style={{ color: sig.side === 'buy' ? '#22c55e' : '#ef4444', fontWeight: 'bold' }}>{sig.side === 'buy' ? '🟢 BUY' : '🔴 SELL'}</span>
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{sig.confidence}% | R:R {sig.rr.toFixed(1)}</span>
+                  <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '6px' }}>${fmtPrice(sr.lastPrice)}</div>
+                  {sr.signals.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {sr.signals.slice(0, 1).map((sig, i) => (
+                        <div key={i} style={{ background: sig.side === 'buy' ? '#22c55e08' : '#ef444408', border: `1px solid ${sig.side === 'buy' ? '#22c55e30' : '#ef444430'}`, borderRadius: '6px', padding: '6px 8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <span style={{ color: sig.side === 'buy' ? '#22c55e' : '#ef4444', fontWeight: 'bold', fontSize: '0.82rem' }}>{sig.side === 'buy' ? '🟢 BUY' : '🔴 SELL'}</span>
+                            <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>{sig.confidence}% | R:R {sig.rr.toFixed(1)}</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '2px', fontSize: '0.7rem', color: '#94a3b8' }}>
+                            <span>E: <strong style={{ color: '#e2e8f0' }}>{fmtPrice(sig.entry)}</strong></span>
+                            <span>SL: <strong style={{ color: '#ef4444' }}>{fmtPrice(sig.sl)}</strong></span>
+                            <span>TP: <strong style={{ color: '#22c55e' }}>{fmtPrice(sig.tp)}</strong></span>
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '3px' }}>{sig.pattern.name}</div>
+                        </div>
+                      ))}
                     </div>
-                  )) : <div style={{ color: '#475569', fontSize: '0.8rem', fontStyle: 'italic' }}>Chưa có tín hiệu</div>}
+                  ) : <div style={{ color: '#475569', fontSize: '0.8rem', fontStyle: 'italic' }}>Chưa có tín hiệu</div>}
                 </div>
               ))}
             </div>
