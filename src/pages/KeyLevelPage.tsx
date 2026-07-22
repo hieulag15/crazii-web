@@ -332,6 +332,8 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
   // Manual check TP/SL (thay thế auto-track 30s)
   const [checking, setChecking] = useState(false);
+  const [liveProgress, setLiveProgress] = useState<Record<string, { price: number; pnlPct: number; progressToTP: number; progressToSL: number }>>({});
+
   const handleCheckTPSL = useCallback(async () => {
     setChecking(true);
     const pending = getAllSignals().filter(s => s.outcome === 'pending');
@@ -339,29 +341,49 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
     const symbols = [...new Set(pending.map(s => s.symbol))];
     let updatedCount = 0;
+    const newProgress: typeof liveProgress = {};
+
     for (const sym of symbols) {
       try {
-        const data = await fetchCandles(sym, '4h', 50); // Lấy nhiều nến hơn để cover
+        const data = await fetchCandles(sym, '4h', 50);
         if (data.length === 0) continue;
+        const currentPrice = data[data.length - 1].close;
         const symSignals = pending.filter(s => s.symbol === sym);
+
         for (const sig of symSignals) {
-          // Chỉ check nến SAU thời điểm entry (signal time)
-          const entryTime = Math.floor(sig.createdAt / 1000); // createdAt ms → seconds
+          const entryTime = Math.floor(sig.createdAt / 1000);
           const candlesAfterEntry = data.filter(c => c.time > entryTime);
 
-          if (candlesAfterEntry.length === 0) continue; // Chưa có nến mới sau entry
-
+          // Check TP/SL
+          let hit = false;
           for (const candle of candlesAfterEntry) {
             const result = checkSignalOutcome(sig, candle.close, candle.high, candle.low);
-            if (result) { updateSignal(sig.id, result); updatedCount++; break; }
+            if (result) { updateSignal(sig.id, result); updatedCount++; hit = true; break; }
+          }
+
+          // Nếu chưa hit → tính progress hiện tại
+          if (!hit) {
+            const pnlPct = sig.side === 'buy'
+              ? ((currentPrice - sig.entry) / sig.entry) * 100
+              : ((sig.entry - currentPrice) / sig.entry) * 100;
+
+            const totalToTP = Math.abs(sig.tp - sig.entry);
+            const totalToSL = Math.abs(sig.sl - sig.entry);
+            const currentMove = sig.side === 'buy' ? currentPrice - sig.entry : sig.entry - currentPrice;
+
+            const progressToTP = Math.min(100, Math.max(0, (currentMove / totalToTP) * 100));
+            const progressToSL = currentMove < 0 ? Math.min(100, Math.max(0, (Math.abs(currentMove) / totalToSL) * 100)) : 0;
+
+            newProgress[sig.id] = { price: currentPrice, pnlPct, progressToTP, progressToSL };
           }
         }
       } catch { /* skip */ }
     }
+
+    setLiveProgress(newProgress);
     await refreshJournal();
     setChecking(false);
     if (updatedCount > 0) alert(`✅ Đã cập nhật ${updatedCount} signal (TP/SL)`);
-    else alert('Chưa có signal nào chạm TP/SL (giá chưa đến)');
   }, [refreshJournal]);
 
   // Clean duplicates (xóa cả trên MongoDB)
@@ -1049,6 +1071,41 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                         <span>Vol: <strong>{sig.volumeConfirm ? '✅' : '⚠️'}</strong></span>
                         <span style={{ color: '#64748b', fontSize: '0.8rem' }}>{fmtDate(sig.createdAt)}</span>
                       </div>
+
+                      {/* Live Progress Bar (cho signal pending sau khi check) */}
+                      {sig.outcome === 'pending' && liveProgress[sig.id] && (() => {
+                        const p = liveProgress[sig.id];
+                        const isProfit = p.pnlPct >= 0;
+                        return (
+                          <div style={{ marginTop: '8px', padding: '8px 10px', background: '#0a1628', borderRadius: '6px', border: '1px solid #1e2d4a' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                                Giá hiện tại: <strong style={{ color: '#e2e8f0' }}>${fmtPrice(p.price)}</strong>
+                              </span>
+                              <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: isProfit ? '#22c55e' : '#ef4444' }}>
+                                {isProfit ? '+' : ''}{p.pnlPct.toFixed(2)}%
+                              </span>
+                            </div>
+                            {/* Progress bar */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem' }}>
+                              <span style={{ color: '#ef4444', minWidth: '20px' }}>SL</span>
+                              <div style={{ flex: 1, height: '6px', background: '#1e293b', borderRadius: '3px', position: 'relative', overflow: 'hidden' }}>
+                                {p.progressToSL > 0 && (
+                                  <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${p.progressToSL}%`, background: '#ef4444', borderRadius: '3px' }} />
+                                )}
+                                {p.progressToTP > 0 && (
+                                  <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: `${p.progressToTP}%`, background: '#22c55e', borderRadius: '3px' }} />
+                                )}
+                              </div>
+                              <span style={{ color: '#22c55e', minWidth: '20px', textAlign: 'right' }}>TP</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '3px', fontSize: '0.68rem', color: '#64748b' }}>
+                              <span>Đến SL: {p.progressToSL.toFixed(0)}%</span>
+                              <span>Đến TP: {p.progressToTP.toFixed(0)}%</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {sig.tags.length > 0 && (
                         <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
