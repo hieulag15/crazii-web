@@ -144,33 +144,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         const candles = await fetchCandles(sym);
         if (candles.length === 0) continue;
-        const lastCandle = candles[candles.length - 1];
         const symSignals = pending.filter(s => s.symbol === sym);
 
         for (const sig of symSignals) {
-          let outcome: string | null = null;
-          let rAchieved: number | null = null;
+          // Chỉ check nến SAU thời điểm entry
+          const entryTime = Math.floor((sig.createdAt as number) / 1000);
+          const candlesAfterEntry = candles.filter(c => c.time > entryTime);
+          if (candlesAfterEntry.length === 0) continue;
 
-          if (sig.side === 'buy') {
-            if (lastCandle.low <= sig.sl) { outcome = 'sl'; rAchieved = -1; }
-            else if (lastCandle.high >= sig.tp) { outcome = 'tp'; rAchieved = Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl); }
-          } else {
-            if (lastCandle.high >= sig.sl) { outcome = 'sl'; rAchieved = -1; }
-            else if (lastCandle.low <= sig.tp) { outcome = 'tp'; rAchieved = Math.abs(sig.entry - sig.tp) / Math.abs(sig.sl - sig.entry); }
+          for (const candle of candlesAfterEntry) {
+            let outcome: string | null = null;
+            let rAchieved: number | null = null;
+
+            if (sig.side === 'buy') {
+              if (candle.low <= sig.sl) { outcome = 'sl'; rAchieved = -1; }
+              else if (candle.high >= sig.tp) { outcome = 'tp'; rAchieved = Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl); }
+            } else {
+              if (candle.high >= sig.sl) { outcome = 'sl'; rAchieved = -1; }
+              else if (candle.low <= sig.tp) { outcome = 'tp'; rAchieved = Math.abs(sig.entry - sig.tp) / Math.abs(sig.sl - sig.entry); }
+            }
+
+            if (outcome) {
+              await col.updateOne({ _id: sig._id }, { $set: { outcome, rAchieved, closedAt: candle.time * 1000, closePrice: outcome === 'tp' ? sig.tp : sig.sl } });
+              trackResults.push(`${sym}: ${outcome.toUpperCase()} (${rAchieved?.toFixed(1)}R)`);
+              break;
+            }
           }
 
-          if (outcome) {
-            await col.updateOne({ _id: sig._id }, { $set: { outcome, rAchieved, closedAt: Date.now(), closePrice: outcome === 'tp' ? sig.tp : sig.sl } });
-            trackResults.push(`${sym}: ${outcome.toUpperCase()} (${rAchieved?.toFixed(1)}R)`);
-          } else {
-            // Update maxFavorable/maxAdverse
+          // Update maxFavorable/maxAdverse from candles after entry
+          if (!candlesAfterEntry.some(c => {
+            if (sig.side === 'buy') return c.low <= sig.sl || c.high >= sig.tp;
+            return c.high >= sig.sl || c.low <= sig.tp;
+          })) {
+            const lastCandle = candlesAfterEntry[candlesAfterEntry.length - 1];
             const updates: Record<string, number> = {};
             if (sig.side === 'buy') {
-              if (lastCandle.high > (sig.maxFavorable || sig.entry)) updates.maxFavorable = lastCandle.high;
-              if (lastCandle.low < (sig.maxAdverse || sig.entry)) updates.maxAdverse = lastCandle.low;
+              const maxH = Math.max(...candlesAfterEntry.map(c => c.high));
+              const minL = Math.min(...candlesAfterEntry.map(c => c.low));
+              if (maxH > (sig.maxFavorable || sig.entry)) updates.maxFavorable = maxH;
+              if (minL < (sig.maxAdverse || sig.entry)) updates.maxAdverse = minL;
             } else {
-              if (lastCandle.low < (sig.maxFavorable || sig.entry)) updates.maxFavorable = lastCandle.low;
-              if (lastCandle.high > (sig.maxAdverse || sig.entry)) updates.maxAdverse = lastCandle.high;
+              const minL = Math.min(...candlesAfterEntry.map(c => c.low));
+              const maxH = Math.max(...candlesAfterEntry.map(c => c.high));
+              if (minL < (sig.maxFavorable || sig.entry)) updates.maxFavorable = minL;
+              if (maxH > (sig.maxAdverse || sig.entry)) updates.maxAdverse = maxH;
             }
             if (Object.keys(updates).length > 0) await col.updateOne({ _id: sig._id }, { $set: updates });
           }

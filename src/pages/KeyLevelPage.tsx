@@ -335,18 +335,23 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const handleCheckTPSL = useCallback(async () => {
     setChecking(true);
     const pending = getAllSignals().filter(s => s.outcome === 'pending');
-    if (pending.length === 0) { setChecking(false); return; }
+    if (pending.length === 0) { setChecking(false); alert('Không có signal pending'); return; }
 
     const symbols = [...new Set(pending.map(s => s.symbol))];
     let updatedCount = 0;
     for (const sym of symbols) {
       try {
-        const data = await fetchCandles(sym, '4h', 10);
+        const data = await fetchCandles(sym, '4h', 50); // Lấy nhiều nến hơn để cover
         if (data.length === 0) continue;
         const symSignals = pending.filter(s => s.symbol === sym);
         for (const sig of symSignals) {
-          // Check tất cả nến từ lúc entry đến giờ
-          for (const candle of data) {
+          // Chỉ check nến SAU thời điểm entry (signal time)
+          const entryTime = Math.floor(sig.createdAt / 1000); // createdAt ms → seconds
+          const candlesAfterEntry = data.filter(c => c.time > entryTime);
+
+          if (candlesAfterEntry.length === 0) continue; // Chưa có nến mới sau entry
+
+          for (const candle of candlesAfterEntry) {
             const result = checkSignalOutcome(sig, candle.close, candle.high, candle.low);
             if (result) { updateSignal(sig.id, result); updatedCount++; break; }
           }
@@ -356,7 +361,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     await refreshJournal();
     setChecking(false);
     if (updatedCount > 0) alert(`✅ Đã cập nhật ${updatedCount} signal (TP/SL)`);
-    else alert('Không có signal nào chạm TP/SL mới');
+    else alert('Chưa có signal nào chạm TP/SL (giá chưa đến)');
   }, [refreshJournal]);
 
   // Clean duplicates (xóa cả trên MongoDB)
