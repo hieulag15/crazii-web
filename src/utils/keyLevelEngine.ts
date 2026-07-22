@@ -386,7 +386,27 @@ export function detectCandlePatterns(
     }
   }
 
-  return patterns;
+  // Dedup: 1 nến chỉ giữ 1 pattern (ưu tiên pattern nhiều nến > 1 nến)
+  const PATTERN_PRIORITY: Record<string, number> = {
+    'morning_star': 10, 'evening_star': 10,       // 3 nến = cao nhất
+    'bullish_engulfing': 9, 'bearish_engulfing': 9, // 2 nến
+    'bullish_harami': 8, 'bearish_harami': 8,       // 2 nến
+    'piercing_line': 8, 'bullish_kicker': 8, 'bearish_kicker': 8,
+    'shooting_star': 5, 'hanging_man': 5,           // 1 nến nhưng context
+    'hammer': 4, 'inverted_hammer': 4,              // 1 nến
+    'bullish_belt': 3, 'doji': 1,                   // thấp nhất
+  };
+
+  // Group by candle index, keep highest priority
+  const byIndex = new Map<number, CandlePattern>();
+  for (const p of patterns) {
+    const existing = byIndex.get(p.index);
+    if (!existing || (PATTERN_PRIORITY[p.type] ?? 0) > (PATTERN_PRIORITY[existing.type] ?? 0)) {
+      byIndex.set(p.index, p);
+    }
+  }
+
+  return Array.from(byIndex.values());
 }
 
 // ============================================================

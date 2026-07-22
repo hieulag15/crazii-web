@@ -1086,7 +1086,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                         <span>TP: <strong style={{ color: '#22c55e' }}>${fmtPrice(sig.tp)}</strong></span>
                         <span>Conf: <strong>{sig.confidence}%</strong></span>
                         <span>Vol: <strong>{sig.volumeConfirm ? '✅' : '⚠️'}</strong></span>
-                        <span style={{ color: '#64748b', fontSize: '0.8rem' }}>{fmtDate(sig.createdAt)}</span>
+                        <span style={{ color: '#64748b', fontSize: '0.8rem' }}>🕐 {fmtDate(((sig as any).time ? (sig as any).time * 1000 : sig.createdAt))}</span>
                       </div>
 
                       {/* Live Progress Bar (cho signal pending sau khi check) */}

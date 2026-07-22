@@ -166,29 +166,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await col.insertOne(doc);
         newSignals.push(`${symbol}: ${sig.side.toUpperCase()} ${sig.pattern.name} (${sig.confidence}%) E:${sig.entry} SL:${sig.sl.toFixed(4)} TP:${sig.tp.toFixed(4)} R:R ${sig.rr.toFixed(1)}`);
 
-        // AI đánh giá signal mới (nếu có GEMINI_API_KEY)
-        if (process.env.GEMINI_API_KEY) {
+        // AI đánh giá signal mới (nếu có GROQ_API_KEY)
+        if (process.env.GROQ_API_KEY) {
           try {
-            const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+            const aiRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
               body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: `Đánh giá nhanh signal trading (2-3 câu tiếng Việt):
-${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend}
-Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)}
-Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%
-Lý do: ${sig.reason}
-
-Dựa trên phương pháp Key Level + Nến đảo chiều + EMA 34/89/200:
-- Signal này NÊN VÀO hay KHÔNG? 
-- Rủi ro chính là gì?
-- Gợi ý cải thiện TP/SL?` }] }],
-                generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
+                model: 'llama-3.1-70b-versatile',
+                messages: [
+                  { role: 'system', content: 'Bạn là AI trading assistant. Đánh giá nhanh signal trading bằng tiếng Việt (2-3 câu). Dựa trên phương pháp Key Level + Nến đảo chiều + EMA 34/89/200. Trả lời: NÊN VÀO / CẨN TRỌNG / KHÔNG NÊN + lý do ngắn.' },
+                  { role: 'user', content: `${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend} | Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)} | Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%\nLý do: ${sig.reason}` },
+                ],
+                temperature: 0.3, max_tokens: 200,
               }),
             });
             if (aiRes.ok) {
               const aiData = await aiRes.json();
-              const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              const aiText = aiData.choices?.[0]?.message?.content || '';
               if (aiText) {
                 await col.updateOne({ symbol, side: sig.side, entry: sig.entry, timeframe: '4h' }, { $set: { notes: `🤖 ${aiText}` } });
               }

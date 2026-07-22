@@ -1,14 +1,15 @@
 /**
- * API: AI Signal Analysis (Gemini Pro)
+ * API: AI Signal Analysis (Groq - Llama 3.1 70B)
  * POST /api/ai-analyze
  * Body: { signal, candles, history }
- * Returns: { analysis, shouldTrade, confidence, reasoning }
+ * Returns: { analysis, model }
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const MODEL = 'llama-3.1-70b-versatile';
 
 const SYSTEM_PROMPT = `Bạn là một AI trading assistant chuyên phân tích tín hiệu crypto futures trên khung H4.
 
@@ -90,8 +91,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+  if (!GROQ_API_KEY) {
+    return res.status(500).json({ error: 'GROQ_API_KEY not configured' });
   }
 
   try {
@@ -163,30 +164,33 @@ Hãy:
       return res.status(400).json({ error: 'Invalid request type' });
     }
 
-    // Call Gemini API
-    const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+    // Call Groq API (OpenAI-compatible)
+    const groqRes = await fetch(GROQ_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+      },
       body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: SYSTEM_PROMPT + '\n\n' + userPrompt }] },
+        model: MODEL,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
         ],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 1000,
-        },
+        temperature: 0.3,
+        max_tokens: 1000,
       }),
     });
 
-    if (!geminiRes.ok) {
-      const err = await geminiRes.text();
-      return res.status(500).json({ error: 'Gemini API error', detail: err });
+    if (!groqRes.ok) {
+      const err = await groqRes.text();
+      return res.status(500).json({ error: 'Groq API error', detail: err });
     }
 
-    const data = await geminiRes.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Không có phản hồi';
+    const data = await groqRes.json();
+    const text = data.choices?.[0]?.message?.content || 'Không có phản hồi';
 
-    return res.json({ analysis: text, model: 'gemini-2.0-flash' });
+    return res.json({ analysis: text, model: MODEL });
   } catch (err) {
     return res.status(500).json({ error: 'Internal error', detail: String(err) });
   }
