@@ -359,18 +359,16 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     else alert('Không có signal nào chạm TP/SL mới');
   }, [refreshJournal]);
 
-  // Clean duplicates
+  // Clean duplicates (xóa cả trên MongoDB)
   const handleCleanDuplicates = useCallback(async () => {
-    const all = getAllSignals();
+    const all = trackedSignals;
     const seen = new Map<string, string>(); // key → id (keep first)
     const toDelete: string[] = [];
 
     for (const sig of all) {
-      // Unique key: symbol + time (rounded 4h) + side
-      const timeKey = sig.marketContext?.prevCandles?.[9]?.[3] ?? sig.entry; // dùng entry price as fingerprint
       const key = `${sig.symbol}_${sig.side}_${sig.entry}_${sig.timeframe}`;
       if (seen.has(key)) {
-        toDelete.push(sig.id); // Duplicate → delete
+        toDelete.push(sig.id);
       } else {
         seen.set(key, sig.id);
       }
@@ -379,11 +377,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     if (toDelete.length === 0) { alert('Không có signal trùng'); return; }
 
     for (const id of toDelete) {
-      deleteSignal(id);
+      await deleteSignal(id);
     }
     await refreshJournal();
     alert(`🧹 Đã xóa ${toDelete.length} signal trùng`);
-  }, [refreshJournal]);
+  }, [trackedSignals, refreshJournal]);
 
   // Scanner - Cache-based dashboard
   // Kết quả scan lưu vào localStorage, auto-scan H4 tự cập nhật

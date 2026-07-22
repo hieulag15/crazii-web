@@ -98,7 +98,7 @@ export async function loadAllSignals(): Promise<TrackedSignal[]> {
     // MongoDB trả về _id thay vì id, normalize
     const signals = data.map((s: TrackedSignal & { _id?: string }) => ({
       ...s,
-      id: s.id || s._id || `${s.symbol}_${s.createdAt}_${s.side}`,
+      id: s._id || s.id || `${s.symbol}_${s.createdAt}_${s.side}`,
     })) as TrackedSignal[];
     writeCache(signals);
     return signals;
