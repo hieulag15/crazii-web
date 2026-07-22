@@ -330,32 +330,59 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     if (result.signals.length > 0) refreshJournal();
   }, [result, symbol, timeframe, candles, savedSignalIds, refreshJournal]);
 
-  // Auto-track pending signals (check TP/SL) every 30s
-  useEffect(() => {
-    const check = async () => {
-      const pending = getAllSignals().filter(s => s.outcome === 'pending');
-      if (pending.length === 0) return;
+  // Manual check TP/SL (thay thế auto-track 30s)
+  const [checking, setChecking] = useState(false);
+  const handleCheckTPSL = useCallback(async () => {
+    setChecking(true);
+    const pending = getAllSignals().filter(s => s.outcome === 'pending');
+    if (pending.length === 0) { setChecking(false); return; }
 
-      // Group by symbol to batch fetch
-      const symbols = [...new Set(pending.map(s => s.symbol))];
-      for (const sym of symbols) {
-        try {
-          const data = await fetchCandles(sym, '1h', 5);
-          if (data.length === 0) continue;
-          const last = data[data.length - 1];
-          const symSignals = pending.filter(s => s.symbol === sym);
-          let updated = false;
-          for (const sig of symSignals) {
-            const result = checkSignalOutcome(sig, last.close, last.high, last.low);
-            if (result) { updateSignal(sig.id, result); updated = true; }
+    const symbols = [...new Set(pending.map(s => s.symbol))];
+    let updatedCount = 0;
+    for (const sym of symbols) {
+      try {
+        const data = await fetchCandles(sym, '4h', 10);
+        if (data.length === 0) continue;
+        const symSignals = pending.filter(s => s.symbol === sym);
+        for (const sig of symSignals) {
+          // Check tất cả nến từ lúc entry đến giờ
+          for (const candle of data) {
+            const result = checkSignalOutcome(sig, candle.close, candle.high, candle.low);
+            if (result) { updateSignal(sig.id, result); updatedCount++; break; }
           }
-          if (updated) refreshJournal();
-        } catch { /* skip */ }
+        }
+      } catch { /* skip */ }
+    }
+    await refreshJournal();
+    setChecking(false);
+    if (updatedCount > 0) alert(`✅ Đã cập nhật ${updatedCount} signal (TP/SL)`);
+    else alert('Không có signal nào chạm TP/SL mới');
+  }, [refreshJournal]);
+
+  // Clean duplicates
+  const handleCleanDuplicates = useCallback(async () => {
+    const all = getAllSignals();
+    const seen = new Map<string, string>(); // key → id (keep first)
+    const toDelete: string[] = [];
+
+    for (const sig of all) {
+      // Unique key: symbol + time (rounded 4h) + side
+      const timeKey = sig.marketContext?.prevCandles?.[9]?.[3] ?? sig.entry; // dùng entry price as fingerprint
+      const key = `${sig.symbol}_${sig.side}_${sig.entry}_${sig.timeframe}`;
+      if (seen.has(key)) {
+        toDelete.push(sig.id); // Duplicate → delete
+      } else {
+        seen.set(key, sig.id);
       }
-    };
-    check();
-    const interval = setInterval(check, 30000);
-    return () => clearInterval(interval);
+    }
+
+    if (toDelete.length === 0) { alert('Không có signal trùng'); return; }
+
+    for (const id of toDelete) {
+      deleteSignal(id);
+    }
+    await refreshJournal();
+    alert(`🧹 Đã xóa ${toDelete.length} signal trùng`);
   }, [refreshJournal]);
 
   // Scanner - Cache-based dashboard
@@ -958,7 +985,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                   </button>
                 ))}
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button onClick={handleCleanDuplicates} style={{ ...S.exportBtn, color: '#f59e0b', borderColor: '#f59e0b40' }}>🧹 Clean trùng</button>
+                <button onClick={handleCheckTPSL} disabled={checking} style={{ ...S.exportBtn, color: '#22c55e', borderColor: '#22c55e40' }}>{checking ? '⏳ Đang check...' : '🔄 Check TP/SL'}</button>
                 <button onClick={handleExportCSV} style={S.exportBtn}>📊 Export CSV</button>
                 <button onClick={handleExportJSONL} style={S.exportBtn}>🤖 Export AI (JSONL)</button>
               </div>

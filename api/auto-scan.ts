@@ -134,14 +134,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const db = await getDB();
     const col = db.collection('kl_signals');
     const results: string[] = [];
+    const trackResults: string[] = [];
 
+    // PHASE 1: Auto-track pending signals (check TP/SL)
+    const pending = await col.find({ outcome: 'pending' }).toArray();
+    const pendingSymbols = [...new Set(pending.map(s => s.symbol as string))];
+
+    for (const sym of pendingSymbols) {
+      try {
+        const candles = await fetchCandles(sym);
+        if (candles.length === 0) continue;
+        const lastCandle = candles[candles.length - 1];
+        const symSignals = pending.filter(s => s.symbol === sym);
+
+        for (const sig of symSignals) {
+          let outcome: string | null = null;
+          let rAchieved: number | null = null;
+
+          if (sig.side === 'buy') {
+            if (lastCandle.low <= sig.sl) { outcome = 'sl'; rAchieved = -1; }
+            else if (lastCandle.high >= sig.tp) { outcome = 'tp'; rAchieved = Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl); }
+          } else {
+            if (lastCandle.high >= sig.sl) { outcome = 'sl'; rAchieved = -1; }
+            else if (lastCandle.low <= sig.tp) { outcome = 'tp'; rAchieved = Math.abs(sig.entry - sig.tp) / Math.abs(sig.sl - sig.entry); }
+          }
+
+          if (outcome) {
+            await col.updateOne({ _id: sig._id }, { $set: { outcome, rAchieved, closedAt: Date.now(), closePrice: outcome === 'tp' ? sig.tp : sig.sl } });
+            trackResults.push(`${sym}: ${outcome.toUpperCase()} (${rAchieved?.toFixed(1)}R)`);
+          } else {
+            // Update maxFavorable/maxAdverse
+            const updates: Record<string, number> = {};
+            if (sig.side === 'buy') {
+              if (lastCandle.high > (sig.maxFavorable || sig.entry)) updates.maxFavorable = lastCandle.high;
+              if (lastCandle.low < (sig.maxAdverse || sig.entry)) updates.maxAdverse = lastCandle.low;
+            } else {
+              if (lastCandle.low < (sig.maxFavorable || sig.entry)) updates.maxFavorable = lastCandle.low;
+              if (lastCandle.high > (sig.maxAdverse || sig.entry)) updates.maxAdverse = lastCandle.high;
+            }
+            if (Object.keys(updates).length > 0) await col.updateOne({ _id: sig._id }, { $set: updates });
+          }
+        }
+      } catch { /* skip */ }
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    // PHASE 2: Scan for new signals
     for (const symbol of COIN_LIST) {
       try {
         const candles = await fetchCandles(symbol);
         const signal = detectSignal(candles);
         if (signal) {
           signal.symbol = symbol;
-          // Check duplicate
+          // Check duplicate by symbol + time + side
           const exists = await col.findOne({ symbol, time: signal.time, side: signal.side });
           if (!exists) {
             await col.insertOne(signal);
@@ -152,7 +197,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await new Promise(r => setTimeout(r, 100));
     }
 
-    return res.json({ ok: true, scanned: COIN_LIST.length, signals: results.length, details: results });
+    return res.json({
+      ok: true,
+      scanned: COIN_LIST.length,
+      newSignals: results.length,
+      tracked: trackResults.length,
+      details: results,
+      trackDetails: trackResults,
+    });
   } catch (err) {
     return res.status(500).json({ error: String(err) });
   }

@@ -77,8 +77,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const signal = req.body;
       if (!signal || !signal.symbol) return res.status(400).json({ error: 'Invalid signal data' });
 
-      // Tránh duplicate
-      const exists = await col.findOne({ symbol: signal.symbol, createdAt: signal.createdAt, side: signal.side });
+      // Tránh duplicate: check bằng symbol + time (signal time) + side
+      // time ở đây là thời gian nến (unix seconds), không phải createdAt
+      const duplicateQuery: Record<string, unknown> = { symbol: signal.symbol, side: signal.side };
+      if (signal.time) {
+        duplicateQuery.time = signal.time;
+      } else if (signal.entry) {
+        // Fallback: check bằng symbol + entry + side (cùng giá entry = cùng signal)
+        duplicateQuery.entry = signal.entry;
+      }
+      const exists = await col.findOne(duplicateQuery);
       if (exists) return res.json({ ok: true, id: exists._id?.toString(), duplicate: true });
 
       const result = await col.insertOne({
