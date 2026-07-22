@@ -9,7 +9,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama-3.1-70b-versatile';
+const MODEL = 'openai/gpt-oss-120b';
 
 const SYSTEM_PROMPT = `Bạn là một AI trading assistant chuyên phân tích tín hiệu crypto futures trên khung H4.
 

@@ -173,7 +173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
               body: JSON.stringify({
-                model: 'llama-3.1-70b-versatile',
+                model: 'openai/gpt-oss-120b',
                 messages: [
                   { role: 'system', content: 'Bạn là AI trading assistant. Đánh giá nhanh signal trading bằng tiếng Việt (2-3 câu). Dựa trên phương pháp Key Level + Nến đảo chiều + EMA 34/89/200. Trả lời: NÊN VÀO / CẨN TRỌNG / KHÔNG NÊN + lý do ngắn.' },
                   { role: 'user', content: `${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend} | Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)} | Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%\nLý do: ${sig.reason}` },
