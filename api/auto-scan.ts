@@ -165,6 +165,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         await col.insertOne(doc);
         newSignals.push(`${symbol}: ${sig.side.toUpperCase()} ${sig.pattern.name} (${sig.confidence}%) E:${sig.entry} SL:${sig.sl.toFixed(4)} TP:${sig.tp.toFixed(4)} R:R ${sig.rr.toFixed(1)}`);
+
+        // AI đánh giá signal mới (nếu có GEMINI_API_KEY)
+        if (process.env.GEMINI_API_KEY) {
+          try {
+            const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: `Đánh giá nhanh signal trading (2-3 câu tiếng Việt):
+${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend}
+Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)}
+Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%
+Lý do: ${sig.reason}
+
+Dựa trên phương pháp Key Level + Nến đảo chiều + EMA 34/89/200:
+- Signal này NÊN VÀO hay KHÔNG? 
+- Rủi ro chính là gì?
+- Gợi ý cải thiện TP/SL?` }] }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
+              }),
+            });
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (aiText) {
+                await col.updateOne({ symbol, side: sig.side, entry: sig.entry, timeframe: '4h' }, { $set: { notes: `🤖 ${aiText}` } });
+              }
+            }
+          } catch { /* AI fail silently */ }
+        }
       } catch { /* skip */ }
       await new Promise(r => setTimeout(r, 100));
     }

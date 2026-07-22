@@ -362,15 +362,6 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
             if (result) {
               updateSignal(sig.id, result);
               updatedCount++; hit = true;
-              // Auto AI post-mortem
-              analyzePostMortem({
-                symbol: sig.symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp,
-                pattern: sig.pattern, trend: sig.trend, confidence: sig.confidence,
-                volumeConfirm: sig.volumeConfirm, reason: sig.reason,
-                outcome: result.outcome, rAchieved: result.rAchieved,
-              }).then(analysis => {
-                if (analysis) { updateSignal(sig.id, { notes: `🤖 ${analysis}` }); refreshJournal(); }
-              });
               break;
             }
           }
@@ -471,19 +462,6 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     setLastAutoScan(Date.now());
     setScanning(false);
     refreshJournal();
-
-    // AI đánh giá tổng hợp sau scan
-    const signalsForAI = sorted.filter(sr => sr.signals.length > 0).map(sr => {
-      const sig = sr.signals[0];
-      return { symbol: sr.symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp, pattern: sig.pattern.name, trend: sig.trend, confidence: sig.confidence, volumeConfirm: sig.volumeConfirm };
-    });
-    if (signalsForAI.length > 0) {
-      const history = trackedSignals.filter(s => s.outcome !== 'pending').slice(0, 10)
-        .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side, notes: s.notes }));
-      analyzeScanResults(signalsForAI, history).then(summary => {
-        if (summary) setAiScanSummary(summary);
-      });
-    }
   }, [savedSignalIds, refreshJournal, trackedSignals]);
 
   // Load cached results on mount
@@ -870,7 +848,21 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
-                <button onClick={runScanner} disabled={scanning} style={S.primaryBtn}>{scanning ? '⏳ Đang scan...' : '� Scan lại'}</button>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button onClick={runScanner} disabled={scanning} style={S.primaryBtn}>{scanning ? '⏳ Đang scan...' : '🔄 Scan lại'}</button>
+                  <button onClick={async () => {
+                    const signalsForAI = scanResults.filter(sr => sr.signals.length > 0).map(sr => {
+                      const sig = sr.signals[0];
+                      return { symbol: sr.symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp, pattern: sig.pattern.name, trend: sig.trend, confidence: sig.confidence, volumeConfirm: sig.volumeConfirm };
+                    });
+                    if (signalsForAI.length === 0) { alert('Chưa có signal để AI review'); return; }
+                    setAiScanSummary('⏳ AI đang phân tích...');
+                    const history = trackedSignals.filter(s => s.outcome !== 'pending').slice(0, 10)
+                      .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side, notes: s.notes }));
+                    const summary = await analyzeScanResults(signalsForAI, history);
+                    setAiScanSummary(summary || '❌ Không kết nối được AI');
+                  }} disabled={scanResults.length === 0} style={{ ...S.primaryBtn, background: '#7c3aed' }}>🤖 AI Review</button>
+                </div>
                 <span style={{ fontSize: '0.68rem', color: '#475569' }}>Auto-scan mỗi H4 close: {autoScanEnabled ? '✅ Bật' : '❌ Tắt'}</span>
               </div>
             </div>
