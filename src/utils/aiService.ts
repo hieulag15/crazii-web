@@ -82,7 +82,7 @@ export async function askMarketQuestion(question: string): Promise<string | null
  */
 export async function analyzeScanResults(
   signals: { symbol: string; side: string; entry: number; sl: number; tp: number; pattern: string; trend: string; confidence: number; volumeConfirm: boolean }[],
-  history?: { pattern: string; trend: string; outcome: string; side: string }[]
+  history?: { pattern: string; trend: string; outcome: string; side: string; notes?: string }[]
 ): Promise<string | null> {
   if (signals.length === 0) return null;
   const result = await callAI({

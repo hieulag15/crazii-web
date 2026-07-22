@@ -286,6 +286,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const [aiAnalysis, setAiAnalysis] = useState<Record<string, string>>({});
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiScanSummary, setAiScanSummary] = useState<string>('');
+  const [aiPopup, setAiPopup] = useState<{ id: string; content: string } | null>(null);
 
   // Load signals from MongoDB (+ cache fallback)
   const refreshJournal = useCallback(async () => {
@@ -358,7 +359,20 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           let hit = false;
           for (const candle of candlesAfterEntry) {
             const result = checkSignalOutcome(sig, candle.close, candle.high, candle.low);
-            if (result) { updateSignal(sig.id, result); updatedCount++; hit = true; break; }
+            if (result) {
+              updateSignal(sig.id, result);
+              updatedCount++; hit = true;
+              // Auto AI post-mortem
+              analyzePostMortem({
+                symbol: sig.symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp,
+                pattern: sig.pattern, trend: sig.trend, confidence: sig.confidence,
+                volumeConfirm: sig.volumeConfirm, reason: sig.reason,
+                outcome: result.outcome, rAchieved: result.rAchieved,
+              }).then(analysis => {
+                if (analysis) { updateSignal(sig.id, { notes: `🤖 ${analysis}` }); refreshJournal(); }
+              });
+              break;
+            }
           }
 
           // Nếu chưa hit → tính progress hiện tại
@@ -465,7 +479,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     });
     if (signalsForAI.length > 0) {
       const history = trackedSignals.filter(s => s.outcome !== 'pending').slice(0, 10)
-        .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side }));
+        .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side, notes: s.notes }));
       analyzeScanResults(signalsForAI, history).then(summary => {
         if (summary) setAiScanSummary(summary);
       });
@@ -555,24 +569,33 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     refreshJournal();
   }, [symbol, timeframe, candles, result, savedSignalIds, refreshJournal]);
 
-  // AI Analysis
+  // AI Analysis - show popup
   const handleAIAnalyze = useCallback(async (sig: KeyLevelSignal) => {
     const sigKey = `${symbol}_${sig.time}_${sig.side}`;
-    if (aiAnalysis[sigKey] || aiLoading) return;
+    if (aiLoading) return;
+
+    // Nếu đã có analysis cached → show popup ngay
+    if (aiAnalysis[sigKey]) { setAiPopup({ id: sigKey, content: aiAnalysis[sigKey] }); return; }
+
     setAiLoading(sigKey);
     const history = trackedSignals.filter(s => s.outcome !== 'pending').slice(0, 10)
-      .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side }));
+      .map(s => ({ pattern: s.pattern, trend: s.trend, outcome: s.outcome, side: s.side, notes: s.notes }));
     const candleData = candles.slice(-10).map(c => [c.open, c.high, c.low, c.close, c.volume]);
     const analysis = await analyzeNewSignal(
       { symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp, pattern: sig.pattern.name, trend: sig.trend, confidence: sig.confidence, volumeConfirm: sig.volumeConfirm, reason: sig.reason },
       candleData, history
     );
-    setAiAnalysis(prev => ({ ...prev, [sigKey]: analysis || '❌ Không thể kết nối AI' }));
+    const content = analysis || '❌ Không thể kết nối AI';
+    setAiAnalysis(prev => ({ ...prev, [sigKey]: content }));
+    setAiPopup({ id: sigKey, content });
     setAiLoading(null);
   }, [symbol, candles, trackedSignals, aiAnalysis, aiLoading]);
 
+  // AI Post-mortem cho journal signals
   const handleAIPostMortem = useCallback(async (sig: TrackedSignal) => {
-    if (aiAnalysis[sig.id] || aiLoading) return;
+    if (aiLoading) return;
+    if (aiAnalysis[sig.id]) { setAiPopup({ id: sig.id, content: aiAnalysis[sig.id] }); return; }
+
     setAiLoading(sig.id);
     const analysis = await analyzePostMortem({
       symbol: sig.symbol, side: sig.side, entry: sig.entry, sl: sig.sl, tp: sig.tp,
@@ -580,7 +603,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       volumeConfirm: sig.volumeConfirm, reason: sig.reason,
       outcome: sig.outcome, rAchieved: sig.rAchieved,
     });
-    setAiAnalysis(prev => ({ ...prev, [sig.id]: analysis || '❌ Không thể kết nối AI' }));
+    const content = analysis || '❌ Không thể kết nối AI';
+    setAiAnalysis(prev => ({ ...prev, [sig.id]: content }));
+    setAiPopup({ id: sig.id, content });
     setAiLoading(null);
   }, [aiAnalysis, aiLoading]);
 
@@ -1151,6 +1176,21 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           </div>
         )}
       </div>
+
+      {/* AI Popup */}
+      {aiPopup && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => setAiPopup(null)}>
+          <div style={{ background: '#0f172a', border: '1px solid #4c1d95', borderRadius: '12px', padding: '24px', maxWidth: '600px', width: '100%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, color: '#a78bfa', fontSize: '1rem' }}>🤖 AI Trading Assistant</h3>
+              <button onClick={() => setAiPopup(null)} style={{ background: 'none', border: '1px solid #334155', color: '#94a3b8', width: '28px', height: '28px', borderRadius: '6px', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+            </div>
+            <div style={{ color: '#e2e8f0', fontSize: '0.88rem', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
+              {aiPopup.content}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

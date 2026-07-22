@@ -145,7 +145,8 @@ Tại sao lệnh này ${(s as any).outcome === 'tp' ? 'thắng' : 'thua'}? Rút 
       ).join('\n');
 
       const historyStr = body.history && body.history.length > 0
-        ? `\nLịch sử gần đây:\n` + body.history.slice(0, 10).map(h => `- ${h.side} ${h.pattern} (${h.trend}) → ${h.outcome}`).join('\n')
+        ? `\nLịch sử gần đây (có AI phân tích):\n` +
+          body.history.slice(0, 10).map((h: any) => `- ${h.side} ${h.pattern} (${h.trend}) → ${h.outcome}${h.notes ? ' | AI: ' + h.notes.substring(0, 100) : ''}`).join('\n')
         : '';
 
       userPrompt = `AUTO-SCAN VỪA HOÀN THÀNH. Đây là tất cả tín hiệu H4 vừa phát hiện:
