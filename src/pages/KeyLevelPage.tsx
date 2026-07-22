@@ -584,8 +584,14 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     const content = analysis || '❌ Không thể kết nối AI';
     setAiAnalysis(prev => ({ ...prev, [sig.id]: content }));
     setAiPopup({ id: sig.id, content });
+    // Lưu vào notes của signal
+    if (analysis) {
+      const newNotes = sig.notes ? `${sig.notes}\n\n🤖 AI: ${analysis}` : `🤖 AI: ${analysis}`;
+      updateSignal(sig.id, { notes: newNotes });
+      refreshJournal();
+    }
     setAiLoading(null);
-  }, [aiAnalysis, aiLoading]);
+  }, [aiAnalysis, aiLoading, refreshJournal]);
 
   // Edit signal notes/tags
   const handleStartEdit = (sig: TrackedSignal) => {
