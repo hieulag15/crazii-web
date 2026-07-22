@@ -18,6 +18,7 @@ const ROUTES: Record<string, string> = {
   '/api/kl-signals': './api/kl-signals.ts',
   '/api/scan': './api/scan.ts',
   '/api/ai-analyze': './api/ai-analyze.ts',
+  '/api/auto-scan': './api/auto-scan.ts',
   '/api/test-telegram': './api/test-telegram.ts',
   '/api/notify': './api/notify.ts',
 };

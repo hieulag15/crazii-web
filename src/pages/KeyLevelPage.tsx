@@ -264,7 +264,25 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const [editNotes, setEditNotes] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
 
-  const [savedSignalIds, setSavedSignalIds] = useState<Set<string>>(new Set());
+  const [savedSignalIds, setSavedSignalIds] = useState<Set<string>>(() => {
+    // Load existing signal keys từ cache để tránh duplicate khi page reload
+    try {
+      const cached = JSON.parse(localStorage.getItem('crazii_kl_signals_cache') || '[]');
+      const keys = new Set<string>();
+      for (const s of cached) {
+        // Key format dùng trong scanner: symbol_time_side
+        // time trong TrackedSignal được lưu qua signal.time (unix seconds)
+        // Tuy nhiên TrackedSignal không lưu signal.time, chỉ lưu createdAt (ms)
+        // Nên dùng combo symbol + side + pattern là đủ unique per session
+        if (s.symbol && s.side) {
+          // Dùng createdAt (rounded to nearest 4h) để match
+          const rounded = Math.floor((s.createdAt || 0) / (4 * 3600 * 1000));
+          keys.add(`${s.symbol}_${rounded}_${s.side}`);
+        }
+      }
+      return keys;
+    } catch { return new Set<string>(); }
+  });
   const [aiAnalysis, setAiAnalysis] = useState<Record<string, string>>({});
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiScanSummary, setAiScanSummary] = useState<string>('');
@@ -427,14 +445,20 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       const h4Hours = [3, 7, 11, 15, 19, 23]; // H4 đóng nến tại các giờ này (GMT+7)
       const minute = now.getMinutes();
 
-      // Chỉ chạy trong 2 phút đầu sau khi H4 đóng nến
-      if (h4Hours.includes(gmt7Hour) && minute <= 2) {
+      // Chạy trong 10 phút đầu sau khi H4 đóng nến (mở rộng window)
+      if (h4Hours.includes(gmt7Hour) && minute <= 10) {
         const scanKey = `${now.toDateString()}_${gmt7Hour}`;
         const lastKey = localStorage.getItem('kl_last_autoscan');
         if (lastKey !== scanKey) {
           localStorage.setItem('kl_last_autoscan', scanKey);
           runScanner(); // Auto-scan tất cả coin
         }
+      }
+
+      // Fallback: Nếu đã quá lâu chưa scan (> 5h), scan ngay khi mở tab
+      const lastTime = Number(localStorage.getItem('kl_last_autoscan_time') || '0');
+      if (Date.now() - lastTime > 5 * 60 * 60 * 1000) {
+        runScanner();
       }
     };
 

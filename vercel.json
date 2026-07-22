@@ -8,11 +8,5 @@
   },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ],
-  "crons": [
-    {
-      "path": "/api/check-signals",
-      "schedule": "0 0 * * *"
-    }
   ]
 }
