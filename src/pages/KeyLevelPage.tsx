@@ -1026,6 +1026,10 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                               <button onClick={() => handleSetOutcome(sig.id, 'breakeven')} style={{ ...S.outcomeBtn, background: '#94a3b820', color: '#94a3b8', borderColor: '#94a3b840' }}>➕ BE</button>
                             </>
                           )}
+                          {sig.outcome !== 'pending' && (
+                            <button onClick={() => { updateSignal(sig.id, { outcome: 'pending', closedAt: null, closePrice: null, rAchieved: null }); refreshJournal(); }}
+                              style={{ ...S.outcomeBtn, background: '#eab30820', color: '#eab308', borderColor: '#eab30840' }}>↩️ Pending</button>
+                          )}
                           <button onClick={() => handleStartEdit(sig)} style={S.editBtn}>✏️</button>
                           {sig.outcome !== 'pending' && (
                             <button onClick={() => handleAIPostMortem(sig)} disabled={!!aiAnalysis[sig.id] || aiLoading === sig.id}
