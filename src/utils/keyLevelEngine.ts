@@ -371,18 +371,22 @@ export function detectCandlePatterns(
       patterns.push({ time: c.time, index: i, type: 'shooting_star', direction: 'bearish', name: 'Shooting Star' });
     }
 
-    // Hammer
+    // Hammer — Pattern trung tính (râu dưới dài, thân nhỏ ở trên)
+    // Pine Script gốc: KHÔNG phân biệt bullish/bearish, chỉ là dấu hiệu
     if ((h - l > 3 * Math.abs(o - cl)) &&
         (cl - l) / (0.001 + h - l) > 0.6 &&
         (o - l) / (0.001 + h - l) > 0.6) {
-      patterns.push({ time: c.time, index: i, type: 'hammer', direction: 'bullish', name: 'Hammer' });
+      // Chỉ là bullish signal nếu nến bullish + sau xu hướng giảm
+      const isBullishHammer = cl >= o && prev.close < prev.open;
+      patterns.push({ time: c.time, index: i, type: 'hammer', direction: isBullishHammer ? 'bullish' : 'neutral', name: 'Hammer' });
     }
 
-    // Inverted Hammer
+    // Inverted Hammer — Pattern trung tính (râu trên dài, thân nhỏ ở dưới)
     if ((h - l > 3 * Math.abs(o - cl)) &&
         (h - cl) / (0.001 + h - l) > 0.6 &&
         (h - o) / (0.001 + h - l) > 0.6) {
-      patterns.push({ time: c.time, index: i, type: 'inverted_hammer', direction: 'bullish', name: 'Inverted Hammer' });
+      const isBullishIH = cl >= o && prev.close < prev.open;
+      patterns.push({ time: c.time, index: i, type: 'inverted_hammer', direction: isBullishIH ? 'bullish' : 'neutral', name: 'Inverted Hammer' });
     }
   }
 
@@ -501,22 +505,34 @@ export function generateSignals(
   keyLevels: KeyLevel[],
   emaData: EMAData,
   patterns: CandlePattern[],
-  volumeData: VolumeAnalysis[],
-  maxAge = 1
+  volumeData: VolumeAnalysis[]
 ): KeyLevelSignal[] {
   const signals: KeyLevelSignal[] = [];
-  // Nhưng dùng toàn bộ data trước đó để xác định trend, key level, context
-  const minIndex = Math.max(5, candles.length - maxAge);
+  // Nến cuối từ Binance = nến ĐANG CHẠY (chưa đóng)
+  // Nến áp cuối (length - 2) = nến VỪA ĐÓNG → đây mới là nến cần xét
+  const closedCandleIndex = candles.length - 2; // Nến H4 vừa đóng
+  const minIndex = Math.max(5, closedCandleIndex); // Chỉ xét đúng nến vừa đóng
 
   for (const pattern of patterns) {
     const i = pattern.index;
-    if (i < minIndex || i >= candles.length) continue;
+    if (i < minIndex || i > closedCandleIndex) continue;
     if (pattern.direction === 'neutral') continue;
 
+    // ===== CẢI THIỆN #4: Chỉ trade pattern mạnh =====
+    const STRONG: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker','bullish_harami','bearish_harami'];
+    if (!STRONG.includes(pattern.type)) continue;
+
     const c = candles[i];
-    const price = c.close; // Entry = giá đóng nến đảo chiều
+    const price = c.close;
     const trend = detectTrend(emaData, i);
     const vol = volumeData[i];
+
+    // ===== CẢI THIỆN #1: BLOCK signal ngược trend =====
+    if (pattern.direction === 'bullish' && trend.direction === 'downtrend') continue;
+    if (pattern.direction === 'bearish' && trend.direction === 'uptrend') continue;
+
+    // ===== CẢI THIỆN #3: Volume >= 1x average =====
+    if (vol && vol.volumeRatio < 1.0) continue;
 
     // Bước 1: Xác định side dựa trên pattern direction
     let nearLevel: KeyLevel | null = null;
@@ -588,73 +604,50 @@ export function generateSignals(
     if (nearLevel.strength >= 4 && !wickTouched) continue;
 
     // Tính confidence
-    let confidence = 40; // base
+    let confidence = 50; // base cao hơn vì đã filter mạnh ở trên
 
-    // +15 nếu cùng xu hướng chính (Bước 1)
+    // +15 cùng xu hướng
     if ((side === 'buy' && trend.direction === 'uptrend') ||
         (side === 'sell' && trend.direction === 'downtrend')) {
       confidence += 15;
     }
-    // -15 nếu ngược xu hướng → tín hiệu counter-trend rủi ro cao
-    if ((side === 'buy' && trend.direction === 'downtrend') ||
-        (side === 'sell' && trend.direction === 'uptrend')) {
-      confidence -= 15;
-    }
+    if (trend.direction === 'sideway') confidence += 5;
 
-    // +15 Volume xác nhận
+    // +10 Volume xác nhận
     const volumeConfirm = vol && vol.isHighVolume;
-    if (volumeConfirm) confidence += 15;
-    if (vol && vol.isVeryHighVolume) confidence += 10;
+    if (volumeConfirm) confidence += 10;
+    if (vol && vol.isVeryHighVolume) confidence += 5;
 
-    // +10 Level mạnh (nhiều touches)
-    if (nearLevel.touches >= 5) confidence += 10;
+    // +5 Level mạnh
+    if (nearLevel.touches >= 5) confidence += 5;
     if (nearLevel.touches >= 8) confidence += 5;
 
-    // +10 Pattern mạnh (engulfing, morning/evening star, kicker)
-    const strongPatterns: CandlePatternType[] = [
-      'bullish_engulfing', 'bearish_engulfing',
-      'morning_star', 'evening_star',
-      'bullish_kicker', 'bearish_kicker'
-    ];
-    if (strongPatterns.includes(pattern.type)) confidence += 10;
+    // +10 Pattern cực mạnh
+    const superStrong: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker'];
+    if (superStrong.includes(pattern.type)) confidence += 10;
 
-    // +5 Wick đã touch chính xác vào level
+    // +5 Wick touch
     if (wickTouched) confidence += 5;
 
-    // +5 Money flow đúng hướng
-    if (vol && side === 'buy' && vol.moneyFlow > 0) confidence += 5;
-    if (vol && side === 'sell' && vol.moneyFlow < 0) confidence += 5;
+    // +3 Money flow
+    if (vol && side === 'buy' && vol.moneyFlow > 0) confidence += 3;
+    if (vol && side === 'sell' && vol.moneyFlow < 0) confidence += 3;
 
-    // Cap at 100
     confidence = Math.min(100, Math.max(0, confidence));
 
-    // Chỉ lấy signal >= 55% confidence
-    if (confidence < 55) continue;
+    // ===== CẢI THIỆN #5: Threshold 70% =====
+    if (confidence < 70) continue;
 
-    // Tính SL: Scan vùng sideway gần đó, lấy chân râu dài nhất
-    // Nếu có nhiều nến thả râu tại vùng → SL sau chân râu cây nến dài nhất
-    const slLookback = 5; // Scan 5 nến gần vùng
-    let extremeWick: number;
-
+    // ===== CẢI THIỆN #2: SL = swing low/high 5 nến (rộng hơn) =====
+    const slLookback = 5;
+    let sl: number;
     if (side === 'buy') {
-      // Tìm low thấp nhất trong vùng sideway gần support
-      const nearbyLows = candles.slice(Math.max(0, i - slLookback), i + 1)
-        .filter(candle => Math.abs(candle.low - nearLevel.price) / nearLevel.price < 0.01)
-        .map(candle => candle.low);
-      extremeWick = nearbyLows.length > 0 ? Math.min(...nearbyLows) : c.low;
+      const swingLow = Math.min(...candles.slice(Math.max(0, i - slLookback), i + 1).map(x => x.low));
+      sl = swingLow - (c.high - c.low) * 0.3;
     } else {
-      // Tìm high cao nhất trong vùng sideway gần resistance
-      const nearbyHighs = candles.slice(Math.max(0, i - slLookback), i + 1)
-        .filter(candle => Math.abs(candle.high - nearLevel.price) / nearLevel.price < 0.01)
-        .map(candle => candle.high);
-      extremeWick = nearbyHighs.length > 0 ? Math.max(...nearbyHighs) : c.high;
+      const swingHigh = Math.max(...candles.slice(Math.max(0, i - slLookback), i + 1).map(x => x.high));
+      sl = swingHigh + (c.high - c.low) * 0.3;
     }
-
-    // SL = extreme wick + buffer nhỏ (tránh quét)
-    const wickBuffer = (c.high - c.low) * 0.15;
-    const sl = side === 'buy'
-      ? extremeWick - wickBuffer
-      : extremeWick + wickBuffer;
 
     // Tính TP: Key level kế tiếp phía giá đang đi (S/R thực)
     // Ưu tiên key level, fallback sang EMA, cuối cùng ATR

@@ -109,6 +109,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // PHASE 2: Scan signal mới bằng engine chính
+    // Fetch BTC context trước (alt coins phụ thuộc BTC)
+    let btcTrend = 'sideway';
+    try {
+      const btcCandles = await fetchCandles('BTCUSDT');
+      if (btcCandles.length >= 50) {
+        const btcResult = calculateKeyLevelSystem(btcCandles);
+        btcTrend = btcResult.trend.direction;
+      }
+    } catch { /* skip */ }
+
     for (const symbol of COIN_LIST) {
       try {
         const candles = await fetchCandles(symbol);
@@ -119,6 +129,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // Lấy signal đầu tiên (mới nhất, confidence cao nhất)
         const sig = result.signals[0];
+
+        // Filter theo BTC context: alt follows BTC
+        if (symbol !== 'BTCUSDT') {
+          if (btcTrend === 'downtrend' && sig.side === 'buy') continue; // BTC giảm → không buy alt
+          if (btcTrend === 'uptrend' && sig.side === 'sell') continue; // BTC tăng → không sell alt
+        }
 
         // Check duplicate: cùng symbol + cùng time nến + cùng side
         const exists = await col.findOne({ symbol, side: sig.side, entry: sig.entry, timeframe: '4h' });
@@ -176,7 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 model: 'openai/gpt-oss-120b',
                 messages: [
                   { role: 'system', content: 'Bạn là AI trading assistant. Đánh giá nhanh signal trading bằng tiếng Việt (2-3 câu). Dựa trên phương pháp Key Level + Nến đảo chiều + EMA 34/89/200. Trả lời: NÊN VÀO / CẨN TRỌNG / KHÔNG NÊN + lý do ngắn.' },
-                  { role: 'user', content: `${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend} | Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)} | Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%\nLý do: ${sig.reason}` },
+                  { role: 'user', content: `${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend} | Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)} | Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%\nBTC trend: ${btcTrend}\nLý do: ${sig.reason}` },
                 ],
                 temperature: 0.3, max_tokens: 200,
               }),
