@@ -306,19 +306,44 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
   useEffect(() => { refreshJournal(); }, [refreshJournal]);
 
-  // Load candle data
+  // Load candle data + WebSocket real-time
   useEffect(() => {
     let cancelled = false;
+    let ws: WebSocket | null = null;
+
     (async () => {
       try {
         const data = await fetchCandles(symbol, timeframe, 500);
         if (!cancelled && data.length > 0) {
           setCandles(data);
           setResult(calculateKeyLevelSystem(data));
+
+          // Connect WebSocket cho real-time update
+          ws = connectWebSocket(symbol, timeframe, (liveCandle) => {
+            if (cancelled) return;
+            setCandles(prev => {
+              if (prev.length === 0) return prev;
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              // Nếu cùng time → update nến hiện tại, nếu khác → thêm nến mới
+              if (updated[lastIdx].time === liveCandle.time) {
+                updated[lastIdx] = liveCandle;
+              } else if (liveCandle.time > updated[lastIdx].time) {
+                updated.push(liveCandle);
+                // Giữ max 500 nến
+                if (updated.length > 500) updated.shift();
+              }
+              return updated;
+            });
+          });
         }
       } catch { /* skip */ }
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      if (ws) ws.close();
+    };
   }, [symbol, timeframe]);
 
   // Auto-save tín hiệu mới vào Journal (chỉ signal mới nhất, đã validated bởi engine)
