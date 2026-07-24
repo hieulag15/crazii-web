@@ -635,7 +635,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     const rAchieved = sig.side === 'buy'
       ? (closeP - sig.entry) / Math.abs(sig.entry - sig.sl)
       : (sig.entry - closeP) / Math.abs(sig.sl - sig.entry);
-    const outcome: SignalOutcome = rAchieved > 0 ? 'partial' : rAchieved === 0 ? 'breakeven' : 'manual_close';
+    const outcome: SignalOutcome = rAchieved > 0 ? 'tp' : rAchieved === 0 ? 'breakeven' : 'manual_close';
     const reason = manualCloseReason ? `\n📝 Đóng tay: ${manualCloseReason}` : '';
     updateSignal(id, { outcome, closedAt: Date.now(), closePrice: closeP, rAchieved, notes: (sig.notes || '') + reason });
     setManualCloseId(null); setManualClosePrice(''); setManualCloseReason('');

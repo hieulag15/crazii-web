@@ -217,8 +217,8 @@ export function checkSignalOutcome(
 export function calculateStats(signals?: TrackedSignal[]): TrackingStats {
   const all = signals ?? readCache();
   const closed = all.filter(s => s.outcome !== 'pending');
-  const wins = closed.filter(s => s.outcome === 'tp');
-  const losses = closed.filter(s => s.outcome === 'sl');
+  const wins = closed.filter(s => s.outcome === 'tp' || (s.outcome === 'partial' && (s.rAchieved ?? 0) > 0));
+  const losses = closed.filter(s => s.outcome === 'sl' || (s.outcome === 'manual_close' && (s.rAchieved ?? 0) < 0));
   const rValues = closed.filter(s => s.rAchieved != null).map(s => s.rAchieved!);
 
   const byPattern: TrackingStats['byPattern'] = {};

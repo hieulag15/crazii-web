@@ -136,7 +136,7 @@ Trend lúc vào: ${s.trend}
 Kết quả: ${(s as any).outcome}
 R đạt được: ${(s as any).rAchieved ?? 'N/A'}
 
-Tại sao lệnh này ${(s as any).outcome === 'tp' ? 'thắng' : 'thua'}? Rút kinh nghiệm gì cho lần sau?`;
+Lệnh này ${(s as any).rAchieved > 0 ? 'THẮNG (có lời)' : (s as any).rAchieved === 0 ? 'HÒA (breakeven)' : 'THUA (lỗ)'}. Tại sao? Rút kinh nghiệm gì cho lần sau?`;
 
     } else if (body.type === 'market_question' && body.question) {
       userPrompt = body.question;
