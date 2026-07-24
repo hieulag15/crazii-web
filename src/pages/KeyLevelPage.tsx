@@ -263,6 +263,15 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNotes, setEditNotes] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
+  // Manual close / edit TP-SL states
+  const [manualCloseId, setManualCloseId] = useState<string | null>(null);
+  const [manualClosePrice, setManualClosePrice] = useState('');
+  const [manualCloseReason, setManualCloseReason] = useState('');
+  const [editTPSLId, setEditTPSLId] = useState<string | null>(null);
+  const [editTP, setEditTP] = useState('');
+  const [editSL, setEditSL] = useState('');
+  const [editTPSLReason, setEditTPSLReason] = useState('');
+  const [showAddManual, setShowAddManual] = useState(false);
 
   const [savedSignalIds, setSavedSignalIds] = useState<Set<string>>(() => {
     // Load existing signal keys từ cache để tránh duplicate khi page reload
@@ -615,6 +624,54 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     else if (outcome === 'sl') rAchieved = -1;
     else if (outcome === 'breakeven') rAchieved = 0;
     updateSignal(id, { outcome, closedAt: Date.now(), rAchieved });
+    refreshJournal();
+  };
+
+  // Manual close (đóng sớm với giá tùy chỉnh)
+  const handleManualClose = (id: string) => {
+    const sig = trackedSignals.find(s => s.id === id);
+    if (!sig || !manualClosePrice) return;
+    const closeP = parseFloat(manualClosePrice);
+    const rAchieved = sig.side === 'buy'
+      ? (closeP - sig.entry) / Math.abs(sig.entry - sig.sl)
+      : (sig.entry - closeP) / Math.abs(sig.sl - sig.entry);
+    const outcome: SignalOutcome = rAchieved > 0 ? 'partial' : rAchieved === 0 ? 'breakeven' : 'manual_close';
+    const reason = manualCloseReason ? `\n📝 Đóng tay: ${manualCloseReason}` : '';
+    updateSignal(id, { outcome, closedAt: Date.now(), closePrice: closeP, rAchieved, notes: (sig.notes || '') + reason });
+    setManualCloseId(null); setManualClosePrice(''); setManualCloseReason('');
+    refreshJournal();
+  };
+
+  // Edit TP/SL (lưu giá cũ + lý do)
+  const handleEditTPSL = (id: string) => {
+    const sig = trackedSignals.find(s => s.id === id);
+    if (!sig) return;
+    const newTP = editTP ? parseFloat(editTP) : sig.tp;
+    const newSL = editSL ? parseFloat(editSL) : sig.sl;
+    const history = `\n📐 Sửa TP/SL: TP ${sig.tp.toFixed(4)}→${newTP.toFixed(4)}, SL ${sig.sl.toFixed(4)}→${newSL.toFixed(4)}${editTPSLReason ? ' | Lý do: ' + editTPSLReason : ''} (${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })})`;
+    updateSignal(id, { tp: newTP, sl: newSL, notes: (sig.notes || '') + history });
+    setEditTPSLId(null); setEditTP(''); setEditSL(''); setEditTPSLReason('');
+    refreshJournal();
+  };
+
+  // Add manual signal
+  const handleAddManual = (data: { symbol: string; side: 'buy' | 'sell'; entry: string; sl: string; tp: string; pattern: string; reason: string }) => {
+    const entry = parseFloat(data.entry), sl = parseFloat(data.sl), tp = parseFloat(data.tp);
+    if (!entry || !sl || !tp) return;
+    const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
+    const signal: any = {
+      id: `manual_${data.symbol}_${Date.now()}`,
+      createdAt: Date.now(),
+      symbol: data.symbol, timeframe: '4h', side: data.side,
+      entry, sl, tp, confidence: 0, pattern: data.pattern || 'Manual',
+      trend: 'manual', volumeConfirm: false, nearLevelPrice: 0, nearLevelType: 'manual',
+      reason: data.reason || 'Lệnh thủ công', rr,
+      outcome: 'pending', closedAt: null, closePrice: null, rAchieved: null,
+      maxFavorable: entry, maxAdverse: entry, notes: '🖐 Lệnh thủ công', tags: ['manual'],
+      marketContext: { ema34: 0, ema89: 0, ema200: 0, volumeRatio: 0, prevCandles: [] },
+    };
+    addSignal(signal);
+    setShowAddManual(false);
     refreshJournal();
   };
 
@@ -1034,12 +1091,35 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button onClick={() => setShowAddManual(true)} style={{ ...S.exportBtn, color: '#22c55e', borderColor: '#22c55e40' }}>➕ Thêm lệnh</button>
                 <button onClick={handleCleanDuplicates} style={{ ...S.exportBtn, color: '#f59e0b', borderColor: '#f59e0b40' }}>🧹 Clean trùng</button>
                 <button onClick={handleCheckTPSL} disabled={checking} style={{ ...S.exportBtn, color: '#22c55e', borderColor: '#22c55e40' }}>{checking ? '⏳ Đang check...' : '🔄 Check TP/SL'}</button>
                 <button onClick={handleExportCSV} style={S.exportBtn}>📊 Export CSV</button>
                 <button onClick={handleExportJSONL} style={S.exportBtn}>🤖 Export AI (JSONL)</button>
               </div>
             </div>
+
+            {/* Add manual signal form */}
+            {showAddManual && (
+              <div style={{ ...S.editPanel, marginBottom: '12px' }}>
+                <div style={{ fontSize: '0.85rem', color: '#22c55e', fontWeight: 'bold', marginBottom: '10px' }}>➕ Thêm lệnh thủ công</div>
+                <form onSubmit={e => { e.preventDefault(); const fd = new FormData(e.currentTarget); handleAddManual({ symbol: fd.get('symbol') as string, side: fd.get('side') as 'buy'|'sell', entry: fd.get('entry') as string, sl: fd.get('sl') as string, tp: fd.get('tp') as string, pattern: fd.get('pattern') as string, reason: fd.get('reason') as string }); }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    <input name="symbol" placeholder="Symbol (VD: BTCUSDT)" required style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '140px' }} />
+                    <select name="side" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '80px' }}><option value="buy">BUY</option><option value="sell">SELL</option></select>
+                    <input name="entry" type="number" step="any" placeholder="Entry" required style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '100px' }} />
+                    <input name="sl" type="number" step="any" placeholder="SL" required style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '100px' }} />
+                    <input name="tp" type="number" step="any" placeholder="TP" required style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '100px' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <input name="pattern" placeholder="Pattern (VD: Bullish Engulfing)" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '180px' }} />
+                    <input name="reason" placeholder="Lý do vào lệnh" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', flex: 1 }} />
+                    <button type="submit" style={S.primaryBtn}>💾 Lưu</button>
+                    <button type="button" onClick={() => setShowAddManual(false)} style={S.exportBtn}>Hủy</button>
+                  </div>
+                </form>
+              </div>
+            )}
 
             {/* Signal list */}
             {filteredJournal.length === 0
@@ -1068,7 +1148,8 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                             <>
                               <button onClick={() => handleSetOutcome(sig.id, 'tp')} style={{ ...S.outcomeBtn, background: '#22c55e20', color: '#22c55e', borderColor: '#22c55e40' }}>✅ TP</button>
                               <button onClick={() => handleSetOutcome(sig.id, 'sl')} style={{ ...S.outcomeBtn, background: '#ef444420', color: '#ef4444', borderColor: '#ef444440' }}>❌ SL</button>
-                              <button onClick={() => handleSetOutcome(sig.id, 'breakeven')} style={{ ...S.outcomeBtn, background: '#94a3b820', color: '#94a3b8', borderColor: '#94a3b840' }}>➕ BE</button>
+                              <button onClick={() => { setManualCloseId(sig.id); setManualClosePrice(''); setManualCloseReason(''); }} style={{ ...S.outcomeBtn, background: '#a855f720', color: '#a855f7', borderColor: '#a855f740' }}>✂️ Đóng</button>
+                              <button onClick={() => { setEditTPSLId(sig.id); setEditTP(String(sig.tp)); setEditSL(String(sig.sl)); setEditTPSLReason(''); }} style={{ ...S.outcomeBtn, background: '#3b82f620', color: '#3b82f6', borderColor: '#3b82f640' }}>📐 Sửa TP/SL</button>
                             </>
                           )}
                           {sig.outcome !== 'pending' && (
@@ -1164,6 +1245,37 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                           <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                             <button onClick={handleSaveEdit} style={S.primaryBtn}>💾 Lưu</button>
                             <button onClick={() => setEditingId(null)} style={S.exportBtn}>Hủy</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Manual Close panel */}
+                      {manualCloseId === sig.id && (
+                        <div style={S.editPanel}>
+                          <div style={{ fontSize: '0.82rem', color: '#a855f7', fontWeight: 'bold', marginBottom: '8px' }}>✂️ Đóng lệnh sớm</div>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <input type="number" step="any" value={manualClosePrice} onChange={e => setManualClosePrice(e.target.value)} placeholder="Giá đóng" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '120px' }} />
+                            <input value={manualCloseReason} onChange={e => setManualCloseReason(e.target.value)} placeholder="Lý do đóng sớm" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', flex: 1 }} />
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            <button onClick={() => handleManualClose(sig.id)} style={S.primaryBtn}>✂️ Đóng lệnh</button>
+                            <button onClick={() => setManualCloseId(null)} style={S.exportBtn}>Hủy</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Edit TP/SL panel */}
+                      {editTPSLId === sig.id && (
+                        <div style={S.editPanel}>
+                          <div style={{ fontSize: '0.82rem', color: '#3b82f6', fontWeight: 'bold', marginBottom: '8px' }}>📐 Sửa TP/SL (giá cũ: TP {fmtPrice(sig.tp)} | SL {fmtPrice(sig.sl)})</div>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <input type="number" step="any" value={editTP} onChange={e => setEditTP(e.target.value)} placeholder="TP mới" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '120px' }} />
+                            <input type="number" step="any" value={editSL} onChange={e => setEditSL(e.target.value)} placeholder="SL mới" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', width: '120px' }} />
+                            <input value={editTPSLReason} onChange={e => setEditTPSLReason(e.target.value)} placeholder="Lý do sửa" style={{ ...S.textarea, minHeight: 'auto', padding: '6px 10px', flex: 1 }} />
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            <button onClick={() => handleEditTPSL(sig.id)} style={S.primaryBtn}>💾 Lưu</button>
+                            <button onClick={() => setEditTPSLId(null)} style={S.exportBtn}>Hủy</button>
                           </div>
                         </div>
                       )}
