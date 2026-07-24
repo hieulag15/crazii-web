@@ -107,11 +107,12 @@ function MainChart({ candles, result, symbol, toggles }: { candles: Candle[]; re
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
 
+  // Effect 1: Tạo chart instance (chỉ khi symbol hoặc toggles thay đổi)
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
 
-    // Cleanup old chart
     if (chartRef.current) {
       try { chartRef.current.remove(); } catch { /* disposed */ }
       chartRef.current = null;
@@ -128,7 +129,6 @@ function MainChart({ candles, result, symbol, toggles }: { candles: Candle[]; re
     });
     chartRef.current = chart;
 
-    // Candle series
     const cs = chart.addCandlestickSeries({
       upColor: '#22c55e', downColor: '#ef4444',
       borderUpColor: '#22c55e', borderDownColor: '#ef4444',
@@ -136,75 +136,31 @@ function MainChart({ candles, result, symbol, toggles }: { candles: Candle[]; re
     });
     candleSeriesRef.current = cs;
 
-    const toT = (t: number): Time => (t + 7 * 3600) as unknown as Time;
-
-    cs.setData(candles.map(c => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
-
-    // Volume
     const vol = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    volSeriesRef.current = vol;
+
+    const toT = (t: number): Time => (t + 7 * 3600) as unknown as Time;
+
+    // Set initial data
+    cs.setData(candles.map(c => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
     vol.setData(candles.map(c => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e40' : '#ef444440' })));
 
-    if (result) {
-      // EMA lines
-      if (toggles.showEma) {
-        const ema34 = chart.addLineSeries({ color: '#f97316', lineWidth: 2 });
-        ema34.setData(result.emaData.ema34.slice(34).map((v, i) => ({ time: toT(candles[i + 34].time), value: v })));
-        const ema89 = chart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
-        ema89.setData(result.emaData.ema89.slice(89).map((v, i) => ({ time: toT(candles[i + 89].time), value: v })));
-        const ema200 = chart.addLineSeries({ color: '#a855f7', lineWidth: 2 });
-        ema200.setData(result.emaData.ema200.slice(200).map((v, i) => ({ time: toT(candles[i + 200].time), value: v })));
-      }
+    if (result && toggles.showEma) {
+      const ema34s = chart.addLineSeries({ color: '#f97316', lineWidth: 2 });
+      ema34s.setData(result.emaData.ema34.slice(34).map((v, i) => ({ time: toT(candles[i + 34]?.time ?? 0), value: v })));
+      const ema89s = chart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
+      ema89s.setData(result.emaData.ema89.slice(89).map((v, i) => ({ time: toT(candles[i + 89]?.time ?? 0), value: v })));
+      const ema200s = chart.addLineSeries({ color: '#a855f7', lineWidth: 2 });
+      ema200s.setData(result.emaData.ema200.slice(200).map((v, i) => ({ time: toT(candles[i + 200]?.time ?? 0), value: v })));
+    }
 
-      // Key Level lines (horizontal)
-      if (toggles.showKeyLevels) {
-        for (const lv of result.keyLevels) {
-          cs.createPriceLine({
-            price: lv.price,
-            color: lv.type === 'support' ? '#22c55e' : '#ef4444',
-            lineWidth: 1,
-            lineStyle: 2, // dashed
-            axisLabelVisible: true,
-            title: `${lv.type === 'support' ? 'S' : 'R'} ${lv.touches}t`,
-          });
-        }
-      }
-
-      // Markers (patterns + signals)
-      const markers: SeriesMarker<Time>[] = [];
-
-      if (toggles.showPatterns) {
-        for (const p of result.patterns) {
-          if (p.direction === 'neutral') continue;
-          markers.push({
-            time: toT(p.time),
-            position: p.direction === 'bullish' ? 'belowBar' : 'aboveBar',
-            color: p.direction === 'bullish' ? '#22c55e' : '#ef4444',
-            shape: p.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
-            text: p.name,
-          });
-        }
-      }
-
-      if (toggles.showSignals) {
-        for (const sig of result.signals.slice(0, 10)) {
-          markers.push({
-            time: toT(sig.time),
-            position: sig.side === 'buy' ? 'belowBar' : 'aboveBar',
-            color: sig.side === 'buy' ? '#4ade80' : '#f87171',
-            shape: sig.side === 'buy' ? 'arrowUp' : 'arrowDown',
-            text: `${sig.side.toUpperCase()} ${sig.confidence}%`,
-          });
-        }
-      }
-
-      if (markers.length > 0) {
-        markers.sort((a, b) => (a.time as number) - (b.time as number));
-        cs.setMarkers(markers);
+    if (result && toggles.showKeyLevels) {
+      for (const lv of result.keyLevels) {
+        cs.createPriceLine({ price: lv.price, color: lv.type === 'support' ? '#22c55e' : '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${lv.type === 'support' ? 'S' : 'R'} ${lv.touches}t` });
       }
     }
 
-    // Resize
     const handleResize = () => {
       if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || window.innerHeight - 140 });
     };
@@ -212,7 +168,48 @@ function MainChart({ candles, result, symbol, toggles }: { candles: Candle[]; re
     requestAnimationFrame(handleResize);
 
     return () => { window.removeEventListener('resize', handleResize); try { chart.remove(); } catch {} chartRef.current = null; };
-  }, [candles, result, symbol, toggles]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, result, toggles.showEma, toggles.showKeyLevels, toggles.showPatterns, toggles.showSignals]);
+
+  // Effect 2: Update data real-time (không destroy chart)
+  useEffect(() => {
+    if (!candleSeriesRef.current || !volSeriesRef.current || candles.length === 0) return;
+    const toT = (t: number): Time => (t + 7 * 3600) as unknown as Time;
+
+    // Update candle data
+    const lastCandle = candles[candles.length - 1];
+    candleSeriesRef.current.update({ time: toT(lastCandle.time), open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close });
+    volSeriesRef.current.update({ time: toT(lastCandle.time), value: lastCandle.volume, color: lastCandle.close > lastCandle.open ? '#22c55e40' : '#ef444440' });
+
+    // Update markers
+    if (result && candleSeriesRef.current) {
+      const markers: SeriesMarker<Time>[] = [];
+      if (toggles.showPatterns) {
+        for (const p of result.patterns) {
+          if (p.direction === 'neutral') continue;
+          markers.push({ time: toT(p.time), position: p.direction === 'bullish' ? 'belowBar' : 'aboveBar', color: p.direction === 'bullish' ? '#22c55e' : '#ef4444', shape: p.direction === 'bullish' ? 'arrowUp' : 'arrowDown', text: p.name });
+        }
+      }
+      if (toggles.showSignals && result.signals) {
+        for (const sig of result.signals.slice(0, 10)) {
+          markers.push({ time: toT(sig.time), position: sig.side === 'buy' ? 'belowBar' : 'aboveBar', color: sig.side === 'buy' ? '#4ade80' : '#f87171', shape: sig.side === 'buy' ? 'arrowUp' : 'arrowDown', text: `${sig.side.toUpperCase()} ${sig.confidence}%` });
+        }
+      }
+      if (markers.length > 0) {
+        markers.sort((a, b) => (a.time as number) - (b.time as number));
+        candleSeriesRef.current.setMarkers(markers);
+      }
+    }
+  }, [candles, result, toggles.showPatterns, toggles.showSignals]);
+
+  // Effect 3: Full data set khi candles load lần đầu hoặc symbol change
+  useEffect(() => {
+    if (!candleSeriesRef.current || !volSeriesRef.current || candles.length === 0) return;
+    const toT = (t: number): Time => (t + 7 * 3600) as unknown as Time;
+    candleSeriesRef.current.setData(candles.map(c => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
+    volSeriesRef.current.setData(candles.map(c => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e40' : '#ef444440' })));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, candles.length > 0]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }
