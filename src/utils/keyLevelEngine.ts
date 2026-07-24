@@ -511,11 +511,11 @@ export function generateSignals(
   // Nến cuối từ Binance = nến ĐANG CHẠY (chưa đóng)
   // Nến áp cuối (length - 2) = nến VỪA ĐÓNG → đây mới là nến cần xét
   const closedCandleIndex = candles.length - 2; // Nến H4 vừa đóng
-  const minIndex = Math.max(5, closedCandleIndex); // Chỉ xét đúng nến vừa đóng
 
   for (const pattern of patterns) {
     const i = pattern.index;
-    if (i < minIndex || i > closedCandleIndex) continue;
+    // CHỈ lấy pattern tại ĐÚNG nến vừa đóng, không lấy nến cũ hơn
+    if (i !== closedCandleIndex) continue;
     if (pattern.direction === 'neutral') continue;
 
     // ===== CẢI THIỆN #4: Chỉ trade pattern mạnh =====
