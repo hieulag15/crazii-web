@@ -146,118 +146,70 @@ export function calculateKeyLevels(
   const slice = candles.slice(-lookback);
   if (slice.length < 50) return [];
 
-  // 1. Thu thập điểm đảo chiều (reaction points) có trọng số volume
-  interface ReactionPoint { price: number; weight: number; }
-  const reactions: ReactionPoint[] = [];
-
-  for (let i = 2; i < slice.length - 2; i++) {
-    const c = slice[i];
-    const vol = c.volume || 1;
-    const prevH = Math.max(slice[i - 1].high, slice[i - 2].high);
-    const prevL = Math.min(slice[i - 1].low, slice[i - 2].low);
-    const nextH = Math.max(slice[i + 1].high, slice[i + 2].high);
-    const nextL = Math.min(slice[i + 1].low, slice[i + 2].low);
-
-    // Swing High: nến hiện tại high > 2 nến trước và 2 nến sau
-    if (c.high >= prevH && c.high >= nextH) {
-      reactions.push({ price: c.high, weight: vol });
-    }
-    // Swing Low
-    if (c.low <= prevL && c.low <= nextL) {
-      reactions.push({ price: c.low, weight: vol });
-    }
-
-    // Rejection wicks (râu dài = rejection mạnh)
-    const body = Math.abs(c.close - c.open);
-    const upperWick = c.high - Math.max(c.open, c.close);
-    const lowerWick = Math.min(c.open, c.close) - c.low;
-
-    if (upperWick > body * 2 && upperWick > (c.high - c.low) * 0.5) {
-      reactions.push({ price: c.high, weight: vol * 1.5 });
-    }
-    if (lowerWick > body * 2 && lowerWick > (c.high - c.low) * 0.5) {
-      reactions.push({ price: c.low, weight: vol * 1.5 });
-    }
+  // Mode: High+Low — lấy TẤT CẢ high và low làm data points cho K-Means
+  // Đây chính xác là cách indicator "Key Levels [K-Means] + EMA" hoạt động
+  const dataPoints: number[] = [];
+  for (const c of slice) {
+    dataPoints.push(c.high);
+    dataPoints.push(c.low);
   }
 
-  if (reactions.length < numLevels * 2) return [];
-
-  // 2. Volume Profile: chia price range thành bins, tính volume mỗi bin
-  const allPrices = slice.flatMap(c => [c.high, c.low]);
-  const minPrice = Math.min(...allPrices);
-  const maxPrice = Math.max(...allPrices);
+  const minPrice = Math.min(...dataPoints);
+  const maxPrice = Math.max(...dataPoints);
   const range = maxPrice - minPrice;
   if (range === 0) return [];
 
-  const numBins = 100;
-  const binSize = range / numBins;
-  const volumeProfile: number[] = new Array(numBins).fill(0);
-
-  for (const c of slice) {
-    const midPrice = (c.high + c.low) / 2;
-    const bin = Math.min(numBins - 1, Math.floor((midPrice - minPrice) / binSize));
-    volumeProfile[bin] += c.volume || 1;
-  }
-
-  // 3. Cluster reaction points có trọng số (Weighted K-Means)
-  // Initialize bằng giá trị spread đều
+  // K-Means Clustering
+  // Initialize centers spread đều trong price range
   let centers = Array.from({ length: numLevels }, (_, i) =>
     minPrice + range * ((i + 0.5) / numLevels)
   );
 
-  for (let iter = 0; iter < 50; iter++) {
-    const clusters: { points: ReactionPoint[] }[] = Array.from({ length: numLevels }, () => ({ points: [] }));
+  // Iterate K-Means (max 100 iterations)
+  for (let iter = 0; iter < 100; iter++) {
+    // Assign each data point to nearest center
+    const clusters: number[][] = Array.from({ length: numLevels }, () => []);
 
-    for (const r of reactions) {
+    for (const price of dataPoints) {
       let minDist = Infinity;
       let closest = 0;
       for (let c = 0; c < centers.length; c++) {
-        const dist = Math.abs(r.price - centers[c]);
+        const dist = Math.abs(price - centers[c]);
         if (dist < minDist) { minDist = dist; closest = c; }
       }
-      clusters[closest].points.push(r);
+      clusters[closest].push(price);
     }
 
+    // Update centers = mean of assigned points
     let converged = true;
     const newCenters = centers.map((oldCenter, i) => {
-      const pts = clusters[i].points;
+      const pts = clusters[i];
       if (pts.length === 0) return oldCenter;
-      // Weighted mean
-      const totalWeight = pts.reduce((s, p) => s + p.weight, 0);
-      const weightedMean = pts.reduce((s, p) => s + p.price * p.weight, 0) / totalWeight;
-      if (Math.abs(weightedMean - oldCenter) > 0.1) converged = false;
-      return weightedMean;
+      const mean = pts.reduce((s, p) => s + p, 0) / pts.length;
+      if (Math.abs(mean - oldCenter) > range * 0.0001) converged = false;
+      return mean;
     });
 
     centers = newCenters;
     if (converged) break;
   }
 
-  // 4. Score: kết hợp số reaction + volume tại vùng
+  // Score: đếm số lần high/low chạm vào vùng (proximity 0.3%)
   const currentPrice = candles[candles.length - 1].close;
-  const proximityPct = 0.005; // 0.5%
+  const proximityPct = 0.003; // 0.3% — matching indicator setting
 
   const levels: KeyLevel[] = centers
     .filter(c => c > 0)
     .map(price => {
       let touches = 0;
-      let volScore = 0;
       for (const c of slice) {
-        if (Math.abs(c.high - price) / price < proximityPct ||
-            Math.abs(c.low - price) / price < proximityPct) {
-          touches++;
-          volScore += c.volume || 1;
-        }
+        if (Math.abs(c.high - price) / price < proximityPct) touches++;
+        if (Math.abs(c.low - price) / price < proximityPct) touches++;
       }
-      // Bonus từ volume profile
-      const bin = Math.min(numBins - 1, Math.floor((price - minPrice) / binSize));
-      const vpBonus = volumeProfile[bin] > 0 ? Math.log10(volumeProfile[bin]) : 0;
-
-      const strength = touches + Math.round(vpBonus);
-      const type: 'support' | 'resistance' = price > currentPrice ? 'resistance' : 'support';
-      return { price, type, strength, touches: strength };
+      const type: 'support' | 'resistance' = price < currentPrice ? 'support' : 'resistance';
+      return { price, type, strength: touches, touches };
     })
-    .sort((a, b) => b.strength - a.strength);
+    .sort((a, b) => b.touches - a.touches);
 
   return levels;
 }
