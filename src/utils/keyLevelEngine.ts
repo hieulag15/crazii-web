@@ -159,30 +159,30 @@ export function calculateKeyLevels(
   const range = maxPrice - minPrice;
   if (range === 0) return [];
 
-  // K-Means Clustering
-  // Initialize centers spread đều trong price range
-  let centers = Array.from({ length: numLevels }, (_, i) =>
-    minPrice + range * ((i + 0.5) / numLevels)
+  // Quantile Initialization — match chính xác indicator TradingView
+  // Chọn centers ban đầu tại các quantile đều nhau trong sorted data
+  const sortedPoints = [...dataPoints].sort((a, b) => a - b);
+  const centers: number[] = Array.from({ length: numLevels }, (_, i) =>
+    sortedPoints[Math.floor(sortedPoints.length * (i + 0.5) / numLevels)]
   );
 
   // Iterate K-Means (max 100 iterations)
+  let currentCenters = [...centers];
   for (let iter = 0; iter < 100; iter++) {
-    // Assign each data point to nearest center
     const clusters: number[][] = Array.from({ length: numLevels }, () => []);
 
     for (const price of dataPoints) {
       let minDist = Infinity;
       let closest = 0;
-      for (let c = 0; c < centers.length; c++) {
-        const dist = Math.abs(price - centers[c]);
+      for (let c = 0; c < currentCenters.length; c++) {
+        const dist = Math.abs(price - currentCenters[c]);
         if (dist < minDist) { minDist = dist; closest = c; }
       }
       clusters[closest].push(price);
     }
 
-    // Update centers = mean of assigned points
     let converged = true;
-    const newCenters = centers.map((oldCenter, i) => {
+    const newCenters = currentCenters.map((oldCenter, i) => {
       const pts = clusters[i];
       if (pts.length === 0) return oldCenter;
       const mean = pts.reduce((s, p) => s + p, 0) / pts.length;
@@ -190,7 +190,7 @@ export function calculateKeyLevels(
       return mean;
     });
 
-    centers = newCenters;
+    currentCenters = newCenters;
     if (converged) break;
   }
 
@@ -198,7 +198,7 @@ export function calculateKeyLevels(
   const currentPrice = candles[candles.length - 1].close;
   const proximityPct = 0.003; // 0.3% — matching indicator setting
 
-  const levels: KeyLevel[] = centers
+  const levels: KeyLevel[] = currentCenters
     .filter(c => c > 0)
     .map(price => {
       let touches = 0;
