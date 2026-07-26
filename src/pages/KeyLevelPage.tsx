@@ -31,7 +31,12 @@ function fmtDate(ts: number) {
   return new Date(ts).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 function fmtPrice(p: number) {
-  return p > 100 ? p.toFixed(2) : p.toFixed(4);
+  if (p === 0) return '0';
+  if (p >= 100) return p.toFixed(2);
+  if (p >= 1) return p.toFixed(4);
+  if (p >= 0.01) return p.toFixed(5);
+  if (p >= 0.0001) return p.toFixed(6);
+  return p.toFixed(8); // PEPE, SHIB etc.
 }
 
 const COIN_LIST = [
@@ -274,19 +279,29 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     else saveWatchlist([...watchlist, sym]);
   };
 
-  // All popular USDT pairs for search (mở rộng)
-  const EXTENDED_COINS = [
-    ...COIN_LIST.map(c => c.value),
-    'TONUSDT','TRXUSDT','SHIBUSDT','ICPUSDT','APTUSDT','XLMUSDT','HBARUSDT',
-    'VETUSDT','ALGOUSDT','FTMUSDT','GRTUSDT','SANDUSDT','MANAUSDT','AXSUSDT',
-    'ARUSDT','EGLDUSDT','THETAUSDT','FLOWUSDT','CHZUSDT','APEUSDT','LRCUSDT',
-    'IMXUSDT','GMXUSDT','DYDXUSDT','SNXUSDT','1INCHUSDT','ENJUSDT','ANKRUSDT',
-    'STXUSDT','CFXUSDT','AGIXUSDT','OCEANUSDT','MASKUSDT','WOOUSDT','ACHUSDT',
-    'PEPEUSDT','FLOKIUSDT','BONKUSDT','ORDIUSDT','KASUSDT','TAOUSDT','BOMEUSDT',
-  ];
-  const allCoinsForSearch = [...new Set(EXTENDED_COINS)];
+  // All popular USDT pairs for search — fetch từ Binance
+  const [allBinanceCoins, setAllBinanceCoins] = useState<string[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+        const data = await res.json();
+        const usdtPairs = data.symbols
+          .filter((s: any) => s.quoteAsset === 'USDT' && s.status === 'TRADING')
+          .map((s: any) => s.symbol)
+          .sort();
+        setAllBinanceCoins(usdtPairs);
+      } catch {
+        // Fallback nếu fetch fail
+        setAllBinanceCoins(COIN_LIST.map(c => c.value));
+      }
+    })();
+  }, []);
+
+  const allCoinsForSearch = allBinanceCoins.length > 0 ? allBinanceCoins : COIN_LIST.map(c => c.value);
   const searchResults = searchQuery.length >= 1
-    ? allCoinsForSearch.filter(c => c.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 12)
+    ? allCoinsForSearch.filter(c => c.toLowerCase().includes(searchQuery.toLowerCase() + 'usdt') || c.toLowerCase().startsWith(searchQuery.toLowerCase())).slice(0, 15)
     : [];
 
   // Chart overlay toggles (restored from localStorage)
