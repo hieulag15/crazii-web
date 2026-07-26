@@ -134,10 +134,20 @@ function MainChart({ candles, result, symbol, toggles }: { candles: Candle[]; re
     });
     chartRef.current = chart;
 
+    // Detect price precision cần thiết (cho coin giá nhỏ như PEPE, SHIB)
+    const samplePrice = candles[candles.length - 1]?.close || 1;
+    let pricePrecision = 2;
+    if (samplePrice < 100) pricePrecision = 4;
+    if (samplePrice < 1) pricePrecision = 5;
+    if (samplePrice < 0.01) pricePrecision = 6;
+    if (samplePrice < 0.0001) pricePrecision = 8;
+    if (samplePrice < 0.000001) pricePrecision = 10;
+
     const cs = chart.addCandlestickSeries({
       upColor: '#22c55e', downColor: '#ef4444',
       borderUpColor: '#22c55e', borderDownColor: '#ef4444',
       wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+      priceFormat: { type: 'price', precision: pricePrecision, minMove: Math.pow(10, -pricePrecision) },
     });
     candleSeriesRef.current = cs;
 
