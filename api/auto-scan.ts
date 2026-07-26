@@ -117,19 +117,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // PHASE 2: Scan signal mới bằng engine chính
-    // Fetch BTC context trước (alt coins phụ thuộc BTC)
+    // Đọc watchlist từ MongoDB (nếu user đã setup)
+    const COIN_LIST = await getWatchlist(db);
     let btcTrend = 'sideway';
+
+    // BTC context nâng cao: check vị trí BTC so với key levels
+    let btcNearResistance = false;
+    let btcNearSupport = false;
     try {
       const btcCandles = await fetchCandles('BTCUSDT');
       if (btcCandles.length >= 50) {
         const btcResult = calculateKeyLevelSystem(btcCandles);
         btcTrend = btcResult.trend.direction;
+        const btcPrice = btcCandles[btcCandles.length - 1].close;
+        // Check BTC gần key level nào (trong 1.5%)
+        for (const lv of btcResult.keyLevels) {
+          const dist = Math.abs(btcPrice - lv.price) / btcPrice * 100;
+          if (dist < 1.5) {
+            if (lv.type === 'resistance') btcNearResistance = true;
+            if (lv.type === 'support') btcNearSupport = true;
+          }
+        }
       }
     } catch { /* skip */ }
 
-    // PHASE 2: Scan signal mới bằng engine chính
-    // Đọc watchlist từ MongoDB (nếu user đã setup)
-    const COIN_LIST = await getWatchlist(db);
+    // ETH context: check ETH gần support/resistance (ảnh hưởng ETH ecosystem)
+    const ETH_ECOSYSTEM = ['AAVEUSDT','MKRUSDT','LDOUSDT','CRVUSDT','ENSUSDT','SSVUSDT','RPLUSDT','COMPUSDT','UNIUSDT','LINKUSDT'];
+    let ethNearSupport = false;
+    let ethNearResistance = false;
+    let ethTrend = 'sideway';
+    try {
+      const ethCandles = await fetchCandles('ETHUSDT');
+      if (ethCandles.length >= 50) {
+        const ethResult = calculateKeyLevelSystem(ethCandles);
+        ethTrend = ethResult.trend.direction;
+        const ethPrice = ethCandles[ethCandles.length - 1].close;
+        for (const lv of ethResult.keyLevels) {
+          const dist = Math.abs(ethPrice - lv.price) / ethPrice * 100;
+          if (dist < 1.5) {
+            if (lv.type === 'support') ethNearSupport = true;
+            if (lv.type === 'resistance') ethNearResistance = true;
+          }
+        }
+      }
+    } catch { /* skip */ }
 
     for (const symbol of COIN_LIST) {
       try {
@@ -142,10 +173,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Lấy signal đầu tiên (mới nhất, confidence cao nhất)
         const sig = result.signals[0];
 
-        // Filter theo BTC context: alt follows BTC
+        // Filter theo BTC context (smart):
         if (symbol !== 'BTCUSDT') {
-          if (btcTrend === 'downtrend' && sig.side === 'buy') continue; // BTC giảm → không buy alt
-          if (btcTrend === 'uptrend' && sig.side === 'sell') continue; // BTC tăng → không sell alt
+          if (btcTrend === 'downtrend' && sig.side === 'buy' && !btcNearSupport) continue;
+          if (btcTrend === 'uptrend' && sig.side === 'sell' && !btcNearResistance) continue;
+        }
+
+        // Filter theo ETH context (cho ETH ecosystem coins):
+        // ETH đang giảm + gần support → cho phép BUY ETH eco (ETH sắp bounce → eco bounce theo)
+        // ETH đang tăng + gần resistance → cho phép SELL ETH eco (ETH sắp hồi → eco hồi theo)
+        if (ETH_ECOSYSTEM.includes(symbol)) {
+          if (ethTrend === 'downtrend' && sig.side === 'buy' && !ethNearSupport) continue;
+          if (ethTrend === 'uptrend' && sig.side === 'sell' && !ethNearResistance) continue;
         }
 
         // Check duplicate: cùng symbol + cùng time nến + cùng side

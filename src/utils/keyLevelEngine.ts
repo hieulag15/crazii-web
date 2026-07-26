@@ -470,7 +470,7 @@ export function generateSignals(
     if (i !== closedCandleIndex) continue;
     if (pattern.direction === 'neutral') continue;
 
-    // ===== CẢI THIỆN #4: Chỉ trade pattern mạnh =====
+    // ===== CẢI THIỆN #4: Chỉ trade pattern mạnh (loại Inverted Hammer — 100% SL) =====
     const STRONG: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker','bullish_harami','bearish_harami'];
     if (!STRONG.includes(pattern.type)) continue;
 
@@ -479,9 +479,13 @@ export function generateSignals(
     const trend = detectTrend(emaData, i);
     const vol = volumeData[i];
 
-    // ===== CẢI THIỆN #1: BLOCK signal ngược trend =====
-    if (pattern.direction === 'bullish' && trend.direction === 'downtrend') continue;
-    if (pattern.direction === 'bearish' && trend.direction === 'uptrend') continue;
+    // ===== CẢI THIỆN #1: Block signal ngược trend (nới lỏng cho Engulfing/Kicker/Star) =====
+    const SUPER_STRONG: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker'];
+    const isCounterTrend = (pattern.direction === 'bullish' && trend.direction === 'downtrend') ||
+                           (pattern.direction === 'bearish' && trend.direction === 'uptrend');
+    // Harami ngược trend → block hoàn toàn
+    // Engulfing/Kicker/Star ngược trend → cho phép (vì data cho thấy vẫn win)
+    if (isCounterTrend && !SUPER_STRONG.includes(pattern.type)) continue;
 
     // ===== CẢI THIỆN #3: Volume >= 1x average =====
     if (vol && vol.volumeRatio < 1.0) continue;
@@ -564,6 +568,8 @@ export function generateSignals(
       confidence += 15;
     }
     if (trend.direction === 'sideway') confidence += 5;
+    // Counter-trend Engulfing: -5 (cho phép nhưng giảm confidence)
+    if (isCounterTrend) confidence -= 5;
 
     // +10 Volume xác nhận
     const volumeConfirm = vol && vol.isHighVolume;
@@ -590,15 +596,20 @@ export function generateSignals(
     // ===== CẢI THIỆN #5: Threshold 70% =====
     if (confidence < 70) continue;
 
-    // ===== CẢI THIỆN #2: SL = swing low/high 5 nến (rộng hơn) =====
+    // ===== CẢI THIỆN #2: SL = swing low/high 5 nến + buffer % (phù hợp mọi coin) =====
     const slLookback = 5;
     let sl: number;
+    // Buffer = max(0.5% giá, 30% thân nến) — coin nhỏ cần buffer % lớn hơn
+    const percentBuffer = price * 0.005; // 0.5% giá
+    const candleBuffer = (c.high - c.low) * 0.3;
+    const buffer = Math.max(percentBuffer, candleBuffer);
+
     if (side === 'buy') {
       const swingLow = Math.min(...candles.slice(Math.max(0, i - slLookback), i + 1).map(x => x.low));
-      sl = swingLow - (c.high - c.low) * 0.3;
+      sl = swingLow - buffer;
     } else {
       const swingHigh = Math.max(...candles.slice(Math.max(0, i - slLookback), i + 1).map(x => x.high));
-      sl = swingHigh + (c.high - c.low) * 0.3;
+      sl = swingHigh + buffer;
     }
 
     // Tính TP: Key level kế tiếp phía giá đang đi (S/R thực)
