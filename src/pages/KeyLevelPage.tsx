@@ -1059,6 +1059,10 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                   <div style={S.statLabel}>Avg R</div>
                   <div style={{ ...S.statValue, color: stats.avgR >= 0 ? '#22c55e' : '#ef4444' }}>{stats.avgR.toFixed(2)}R</div>
                 </div>
+                <div style={{ ...S.statCard, borderColor: '#fbbf2440' }}>
+                  <div style={S.statLabel}>Total R</div>
+                  <div style={{ ...S.statValue, color: stats.totalR >= 0 ? '#22c55e' : '#ef4444' }}>+{stats.totalR.toFixed(1)}R</div>
+                </div>
                 <div style={{ ...S.statCard, borderColor: '#22c55e40' }}>
                   <div style={S.statLabel}>✅ TP</div>
                   <div style={{ ...S.statValue, color: '#22c55e' }}>{stats.wins}</div>

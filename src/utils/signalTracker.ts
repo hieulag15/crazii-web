@@ -53,6 +53,7 @@ export interface TrackingStats {
   pending: number;
   winRate: number;
   avgR: number;
+  totalR: number;
   bestR: number;
   worstR: number;
   byPattern: Record<string, { total: number; wins: number; winRate: number; avgR: number }>;
@@ -252,6 +253,7 @@ export function calculateStats(signals?: TrackedSignal[]): TrackingStats {
     pending: all.filter(s => s.outcome === 'pending').length,
     winRate: closed.length > 0 ? (wins.length / closed.length) * 100 : 0,
     avgR: rValues.length > 0 ? rValues.reduce((a, b) => a + b, 0) / rValues.length : 0,
+    totalR: rValues.length > 0 ? rValues.reduce((a, b) => a + b, 0) : 0,
     bestR: rValues.length > 0 ? Math.max(...rValues) : 0,
     worstR: rValues.length > 0 ? Math.min(...rValues) : 0,
     byPattern, byTimeframe, byTrend,
