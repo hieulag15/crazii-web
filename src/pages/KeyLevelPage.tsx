@@ -805,7 +805,15 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     return <span style={{ color: c[dir], fontWeight: 'bold', fontSize: '0.85rem' }}>{l[dir]}</span>;
   };
 
-  const filteredJournal = journalFilter === 'all' ? trackedSignals : trackedSignals.filter(s => s.outcome === journalFilter);
+  const filteredJournal = (journalFilter === 'all' ? trackedSignals : trackedSignals.filter(s => s.outcome === journalFilter))
+    .sort((a, b) => {
+      // Closed signals: mới đóng nhất lên trên
+      // Pending signals: xuống cuối, sắp theo createdAt mới nhất
+      if (a.outcome === 'pending' && b.outcome !== 'pending') return 1;
+      if (a.outcome !== 'pending' && b.outcome === 'pending') return -1;
+      if (a.outcome !== 'pending' && b.outcome !== 'pending') return (b.closedAt || 0) - (a.closedAt || 0);
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
 
   return (
     <div style={S.container}>
@@ -1310,6 +1318,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                         <span>Conf: <strong>{sig.confidence}%</strong></span>
                         <span>Vol: <strong>{sig.volumeConfirm ? '✅' : '⚠️'}</strong></span>
                         <span style={{ color: '#64748b', fontSize: '0.8rem' }}>🕐 {fmtDate(((sig as any).time ? (sig as any).time * 1000 : sig.createdAt))}</span>
+                        {sig.closedAt && <span style={{ color: sig.rAchieved && sig.rAchieved > 0 ? '#22c55e' : '#ef4444', fontSize: '0.8rem' }}>🔒 {fmtDate(sig.closedAt)}</span>}
                       </div>
 
                       {/* Live Progress Bar (cho signal pending sau khi check) */}
