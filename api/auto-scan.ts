@@ -17,7 +17,7 @@ import type { Candle } from '../src/types/index.js';
 
 const BINANCE_API = 'https://api.binance.com/api/v3';
 
-const COIN_LIST = [
+const DEFAULT_COIN_LIST = [
   'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','DOGEUSDT',
   'AVAXUSDT','DOTUSDT','LINKUSDT','MATICUSDT','NEARUSDT','LTCUSDT','UNIUSDT',
   'ATOMUSDT','APTUSDT','FILUSDT','ARBUSDT','OPUSDT','INJUSDT','SUIUSDT',
@@ -25,6 +25,14 @@ const COIN_LIST = [
   'PENDLEUSDT','WIFUSDT','AAVEUSDT','MKRUSDT','LDOUSDT','CRVUSDT','ENSUSDT',
   'SSVUSDT','RPLUSDT','COMPUSDT',
 ];
+
+async function getWatchlist(db: any): Promise<string[]> {
+  try {
+    const doc = await db.collection('settings').findOne({ _id: 'watchlist' as any });
+    if (doc?.coins && doc.coins.length > 0) return doc.coins;
+  } catch { /* fallback */ }
+  return DEFAULT_COIN_LIST;
+}
 
 async function fetchCandles(symbol: string): Promise<Candle[]> {
   const url = `${BINANCE_API}/klines?symbol=${symbol}&interval=4h&limit=500`;
@@ -118,6 +126,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         btcTrend = btcResult.trend.direction;
       }
     } catch { /* skip */ }
+
+    // PHASE 2: Scan signal mới bằng engine chính
+    // Đọc watchlist từ MongoDB (nếu user đã setup)
+    const COIN_LIST = await getWatchlist(db);
 
     for (const symbol of COIN_LIST) {
       try {

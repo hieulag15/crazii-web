@@ -19,6 +19,7 @@ const ROUTES: Record<string, string> = {
   '/api/scan': './api/scan.ts',
   '/api/ai-analyze': './api/ai-analyze.ts',
   '/api/auto-scan': './api/auto-scan.ts',
+  '/api/watchlist': './api/watchlist.ts',
   '/api/test-telegram': './api/test-telegram.ts',
   '/api/notify': './api/notify.ts',
 };

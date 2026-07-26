@@ -240,6 +240,55 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const [scanning, setScanning] = useState(false);
   const [scanFilter, setScanFilter] = useState<'all' | 'top10' | 'top20' | 'top30' | 'eth'>('all');
 
+  // Search & Watchlist (MongoDB-backed)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [watchlist, setWatchlist] = useState<string[]>(() => {
+    try { const w = localStorage.getItem('kl_watchlist'); return w ? JSON.parse(w) : COIN_LIST.map(c => c.value); } catch { return COIN_LIST.map(c => c.value); }
+  });
+
+  // Load watchlist from MongoDB on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/watchlist');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.coins && data.coins.length > 0) {
+            setWatchlist(data.coins);
+            localStorage.setItem('kl_watchlist', JSON.stringify(data.coins));
+          }
+        }
+      } catch { /* use localStorage fallback */ }
+    })();
+  }, []);
+
+  const saveWatchlist = (list: string[]) => {
+    setWatchlist(list);
+    localStorage.setItem('kl_watchlist', JSON.stringify(list));
+    // Sync to MongoDB
+    fetch('/api/watchlist', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coins: list }) }).catch(() => {});
+  };
+  const toggleWatchlist = (sym: string) => {
+    if (watchlist.includes(sym)) saveWatchlist(watchlist.filter(s => s !== sym));
+    else saveWatchlist([...watchlist, sym]);
+  };
+
+  // All popular USDT pairs for search (mở rộng)
+  const EXTENDED_COINS = [
+    ...COIN_LIST.map(c => c.value),
+    'TONUSDT','TRXUSDT','SHIBUSDT','ICPUSDT','APTUSDT','XLMUSDT','HBARUSDT',
+    'VETUSDT','ALGOUSDT','FTMUSDT','GRTUSDT','SANDUSDT','MANAUSDT','AXSUSDT',
+    'ARUSDT','EGLDUSDT','THETAUSDT','FLOWUSDT','CHZUSDT','APEUSDT','LRCUSDT',
+    'IMXUSDT','GMXUSDT','DYDXUSDT','SNXUSDT','1INCHUSDT','ENJUSDT','ANKRUSDT',
+    'STXUSDT','CFXUSDT','AGIXUSDT','OCEANUSDT','MASKUSDT','WOOUSDT','ACHUSDT',
+    'PEPEUSDT','FLOKIUSDT','BONKUSDT','ORDIUSDT','KASUSDT','TAOUSDT','BOMEUSDT',
+  ];
+  const allCoinsForSearch = [...new Set(EXTENDED_COINS)];
+  const searchResults = searchQuery.length >= 1
+    ? allCoinsForSearch.filter(c => c.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 12)
+    : [];
+
   // Chart overlay toggles (restored from localStorage)
   const [overlayOpen, setOverlayOpen] = useState(savedSettings?.overlayOpen ?? true);
   const [showEma, setShowEma] = useState(savedSettings?.showEma ?? true);
@@ -460,9 +509,13 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
   const runScanner = useCallback(async () => {
     setScanning(true);
-    const coins = COIN_LIST; // Luôn scan tất cả coin
+    // Scan watchlist (user chọn) thay vì fixed COIN_LIST
+    const coinsToScan = watchlist.map(sym => {
+      const found = COIN_LIST.find(c => c.value === sym);
+      return found || { value: sym, label: sym.replace('USDT', ''), tv: `BINANCE:${sym}`, category: 'custom' };
+    });
     const results: ScanResult[] = [];
-    for (const coin of coins) {
+    for (const coin of coinsToScan) {
       try {
         const data = await fetchCandles(coin.value, '4h', 500);
         if (data.length > 50) {
@@ -493,7 +546,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     setLastAutoScan(Date.now());
     setScanning(false);
     refreshJournal();
-  }, [savedSignalIds, refreshJournal, trackedSignals]);
+  }, [savedSignalIds, refreshJournal, trackedSignals, watchlist]);
 
   // Load cached results on mount
   useEffect(() => {
@@ -739,12 +792,35 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       {/* Controls */}
       <div style={S.controls}>
         <div style={S.controlGroup}>
-          <select value={symbol} onChange={e => setSymbol(e.target.value)} style={S.select}>
-            <optgroup label="Top 10">{COIN_LIST.filter(c => c.category === 'top10').map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</optgroup>
-            <optgroup label="Top 11-20">{COIN_LIST.filter(c => c.category === 'top20').map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</optgroup>
-            <optgroup label="Top 21-30">{COIN_LIST.filter(c => c.category === 'top30').map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</optgroup>
-            <optgroup label="ETH Ecosystem">{COIN_LIST.filter(c => c.category === 'eth').map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</optgroup>
-          </select>
+          <div style={{ position: 'relative' }}>
+            <input
+              value={searchOpen ? searchQuery : (COIN_LIST.find(c => c.value === symbol)?.label || symbol.replace('USDT', ''))}
+              onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+              onFocus={() => setSearchOpen(true)}
+              placeholder="Tìm coin..."
+              style={{ ...S.select, width: '120px', cursor: 'text' }}
+            />
+            {searchOpen && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', maxHeight: '250px', overflow: 'auto', width: '200px', marginTop: '2px' }}>
+                {searchResults.length > 0 ? searchResults.map(sym => (
+                  <div key={sym} onClick={() => { setSymbol(sym); setSearchOpen(false); setSearchQuery(''); }}
+                    style={{ padding: '6px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e2d4a', fontSize: '0.82rem', color: '#e2e8f0' }}>
+                    <span>{sym.replace('USDT', '')}</span>
+                    <button onClick={e => { e.stopPropagation(); toggleWatchlist(sym); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: watchlist.includes(sym) ? '#fbbf24' : '#475569' }}>
+                      {watchlist.includes(sym) ? '★' : '☆'}
+                    </button>
+                  </div>
+                )) : searchQuery ? <div style={{ padding: '8px', color: '#64748b', fontSize: '0.8rem' }}>Nhập symbol (VD: BTC, ETH...)</div> : null}
+                {!searchQuery && (
+                  <div style={{ padding: '6px 10px', fontSize: '0.72rem', color: '#64748b', borderTop: '1px solid #1e2d4a' }}>
+                    ★ Watchlist ({watchlist.length}) — dùng cho auto-scan
+                  </div>
+                )}
+              </div>
+            )}
+            {searchOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setSearchOpen(false)} />}
+          </div>
           <div style={S.tfGroup}>
             {TIMEFRAMES_KL.map(tf => (
               <button key={tf.value} onClick={() => setTimeframe(tf.value)} style={{ ...S.tfBtn, ...(timeframe === tf.value ? S.tfBtnActive : {}) }}>{tf.label}</button>
