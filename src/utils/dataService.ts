@@ -52,12 +52,17 @@ export async function fetchCandles(
   limit = 500
 ): Promise<Candle[]> {
   try {
-    const baseUrl = isFuturesSymbol(symbol)
-      ? `${BINANCE_FUTURES}/klines`
-      : `${BINANCE_REST_ENDPOINTS[0]}/klines`;
-    const url = `${baseUrl}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-    const response = await fetchWithFallback(url);
-    const data = await response.json();
+    // Ưu tiên Futures API (Perpetual) vì trade futures
+    const futuresUrl = `${BINANCE_FUTURES}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+    let response = await fetchWithFallback(futuresUrl);
+    let data = await response.json();
+
+    // Fallback sang Spot nếu Futures không có symbol
+    if (!Array.isArray(data) || data.length === 0) {
+      const spotUrl = `${BINANCE_REST_ENDPOINTS[0]}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      response = await fetchWithFallback(spotUrl);
+      data = await response.json();
+    }
 
     if (!Array.isArray(data)) {
       console.error('Invalid response:', data);
@@ -96,13 +101,8 @@ export function connectWebSocket(
   interval: string,
   onUpdate: (candle: LiveCandle) => void
 ): WebSocket {
-  let wsUrl: string;
-  if (isFuturesSymbol(symbol)) {
-    // Futures: dùng /market/ws endpoint (sau 2026-04-23 upgrade)
-    wsUrl = `${BINANCE_FUTURES_WS}/${symbol.toLowerCase()}@kline_${interval}`;
-  } else {
-    wsUrl = `${BINANCE_WS}/${symbol.toLowerCase()}@kline_${interval}`;
-  }
+  // Ưu tiên Futures WebSocket (vì trade perpetual)
+  const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`;
 
   const ws = new WebSocket(wsUrl);
   let isClosed = false;

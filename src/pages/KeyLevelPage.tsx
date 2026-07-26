@@ -289,13 +289,14 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     else saveWatchlist([...watchlist, sym]);
   };
 
-  // All popular USDT pairs for search — fetch từ Binance
+  // All USDT pairs for search — fetch từ Binance Futures
   const [allBinanceCoins, setAllBinanceCoins] = useState<string[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+        // Ưu tiên Futures (có nhiều coin mới hơn)
+        const res = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
         const data = await res.json();
         const usdtPairs = data.symbols
           .filter((s: any) => s.quoteAsset === 'USDT' && s.status === 'TRADING')
@@ -303,8 +304,16 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           .sort();
         setAllBinanceCoins(usdtPairs);
       } catch {
-        // Fallback nếu fetch fail
-        setAllBinanceCoins(COIN_LIST.map(c => c.value));
+        try {
+          // Fallback Spot
+          const res = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+          const data = await res.json();
+          const usdtPairs = data.symbols
+            .filter((s: any) => s.quoteAsset === 'USDT' && s.status === 'TRADING')
+            .map((s: any) => s.symbol)
+            .sort();
+          setAllBinanceCoins(usdtPairs);
+        } catch { setAllBinanceCoins(COIN_LIST.map(c => c.value)); }
       }
     })();
   }, []);

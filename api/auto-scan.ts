@@ -15,7 +15,7 @@ import {
 } from '../src/utils/keyLevelEngine.js';
 import type { Candle } from '../src/types/index.js';
 
-const BINANCE_API = 'https://api.binance.com/api/v3';
+const BINANCE_API = 'https://fapi.binance.com/fapi/v1';
 
 const DEFAULT_COIN_LIST = [
   'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','DOGEUSDT',
