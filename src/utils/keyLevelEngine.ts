@@ -470,7 +470,7 @@ export function generateSignals(
     if (i !== closedCandleIndex) continue;
     if (pattern.direction === 'neutral') continue;
 
-    // ===== CẢI THIỆN #4: Chỉ trade pattern mạnh (loại Inverted Hammer — 100% SL) =====
+    // ===== CẢI THIỆN #4: Chỉ trade pattern mạnh (loại Inverted Hammer, Hammer — 100% SL theo backtest) =====
     const STRONG: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker','bullish_harami','bearish_harami'];
     if (!STRONG.includes(pattern.type)) continue;
 
@@ -487,8 +487,12 @@ export function generateSignals(
     // Engulfing/Kicker/Star ngược trend → cho phép (vì data cho thấy vẫn win)
     if (isCounterTrend && !SUPER_STRONG.includes(pattern.type)) continue;
 
-    // ===== CẢI THIỆN #3: Volume >= 1x average =====
-    if (vol && vol.volumeRatio < 1.0) continue;
+    // ===== CẢI THIỆN #3: Volume filter (backtest: thua hầu hết khi vol thấp) =====
+    // Engulfing/Kicker/Star = pattern mạnh → chỉ cần vol >= 0.8x avg
+    // Harami = pattern yếu hơn → cần vol >= 1.2x avg để đảm bảo xác nhận
+    const WEAK_PATTERNS: CandlePatternType[] = ['bullish_harami', 'bearish_harami'];
+    const volThreshold = WEAK_PATTERNS.includes(pattern.type) ? 1.2 : 0.8;
+    if (vol && vol.volumeRatio < volThreshold) continue;
 
     // Bước 1: Xác định side dựa trên pattern direction
     let nearLevel: KeyLevel | null = null;
@@ -568,13 +572,16 @@ export function generateSignals(
       confidence += 15;
     }
     if (trend.direction === 'sideway') confidence += 5;
-    // Counter-trend Engulfing: -5 (cho phép nhưng giảm confidence)
-    if (isCounterTrend) confidence -= 5;
+    // Counter-trend penalty: Harami ngược trend → -10, Engulfing/Kicker → -5
+    // Backtest: Harami ngược trend thua nhiều, Engulfing ngược trend vẫn có thể win
+    if (isCounterTrend) {
+      confidence -= WEAK_PATTERNS.includes(pattern.type) ? 10 : 5;
+    }
 
-    // +10 Volume xác nhận
+    // +10 Volume xác nhận (backtest: strong correlation giữa vol cao và win)
     const volumeConfirm = vol && vol.isHighVolume;
     if (volumeConfirm) confidence += 10;
-    if (vol && vol.isVeryHighVolume) confidence += 5;
+    if (vol && vol.isVeryHighVolume) confidence += 8; // tăng từ +5 lên +8
 
     // +5 Level mạnh
     if (nearLevel.touches >= 5) confidence += 5;

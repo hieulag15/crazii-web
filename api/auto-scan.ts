@@ -121,9 +121,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const COIN_LIST = await getWatchlist(db);
     let btcTrend = 'sideway';
 
-    // BTC context nâng cao: check vị trí BTC so với key levels
+    // BTC context nâng cao: check vị trí BTC so với key levels + momentum
     let btcNearResistance = false;
     let btcNearSupport = false;
+    let btcMomentum: 'bullish' | 'bearish' | 'neutral' = 'neutral';
     try {
       const btcCandles = await fetchCandles('BTCUSDT');
       if (btcCandles.length >= 50) {
@@ -137,6 +138,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (lv.type === 'resistance') btcNearResistance = true;
             if (lv.type === 'support') btcNearSupport = true;
           }
+        }
+        // BTC momentum: so sánh 3 nến H4 gần nhất để biết BTC đang push hay retrace
+        // Backtest cho thấy: BTC giảm liên tiếp → sell alt rất hiệu quả
+        const last3 = btcCandles.slice(-4, -1); // 3 nến đóng gần nhất (trừ nến đang chạy)
+        if (last3.length === 3) {
+          const allDown = last3.every(c => c.close < c.open);
+          const allUp = last3.every(c => c.close > c.open);
+          if (allDown) btcMomentum = 'bearish';
+          else if (allUp) btcMomentum = 'bullish';
         }
       }
     } catch { /* skip */ }
@@ -173,10 +183,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Lấy signal đầu tiên (mới nhất, confidence cao nhất)
         const sig = result.signals[0];
 
-        // Filter theo BTC context (smart):
+        // Filter theo BTC context (smart + momentum):
+        // Backtest insight: Khi BTC giảm liên tục → sell alt win rate cao nhất
+        // Khi BTC tăng liên tục → buy alt win rate cao
         if (symbol !== 'BTCUSDT') {
           if (btcTrend === 'downtrend' && sig.side === 'buy' && !btcNearSupport) continue;
           if (btcTrend === 'uptrend' && sig.side === 'sell' && !btcNearResistance) continue;
+
+          // Momentum boost/penalty: BTC đang push mạnh cùng hướng → tăng confidence
+          // BTC đang push ngược hướng → giảm threshold (chặt hơn)
+          if (btcMomentum === 'bearish' && sig.side === 'buy' && sig.confidence < 80) continue;
+          if (btcMomentum === 'bullish' && sig.side === 'sell' && sig.confidence < 80) continue;
         }
 
         // Filter theo ETH context (cho ETH ecosystem coins):
