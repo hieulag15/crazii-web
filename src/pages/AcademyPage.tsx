@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
 interface AcademyPageProps { onBack: () => void; }
-type TopicId = 'overview' | 'step1' | 'step2' | 'step3' | 'step4' | 'mtf' | 'rules' | 'rr' | 'defi1' | 'defi2' | 'defi3';
+type TopicId = 'overview' | 'step1' | 'step2' | 'step3' | 'step4' | 'mtf' | 'rules' | 'rr'
+  | 'macro1' | 'macro2' | 'macro3' | 'macro4'
+  | 'defi1' | 'defi2' | 'defi3';
 
 const TOPICS: { id: TopicId; icon: string; label: string; group?: string }[] = [
   { id: 'overview', icon: '🎯', label: 'Tổng quan phương pháp', group: 'Trading' },
@@ -12,6 +14,10 @@ const TOPICS: { id: TopicId; icon: string; label: string; group?: string }[] = [
   { id: 'mtf', icon: '🔍', label: 'Multi-Timeframe' },
   { id: 'rules', icon: '🚫', label: 'Nguyên tắc bất biến' },
   { id: 'rr', icon: '💰', label: 'Quản lý vốn & R:R' },
+  { id: 'macro1', icon: '👑', label: 'BTC Dominance (BTC.D)', group: 'Macro' },
+  { id: 'macro2', icon: '💵', label: 'USDT Dominance' },
+  { id: 'macro3', icon: '⚖️', label: 'Tỷ lệ ETH/BTC' },
+  { id: 'macro4', icon: '📡', label: 'Total 1 / 2 / 3' },
   { id: 'defi1', icon: '📊', label: 'DeFi: Đọc số liệu', group: 'Research' },
   { id: 'defi2', icon: '💎', label: 'DeFi: Định giá P/S & P/TVL' },
   { id: 'defi3', icon: '🏆', label: 'DeFi: Hold hay Skip?' },
@@ -29,7 +35,14 @@ export default function AcademyPage({ onBack }: AcademyPageProps) {
       <div style={S.body}>
         <nav style={S.sidebar}>
           <div style={S.sidebarGroup}>📊 TRADING</div>
-          {TOPICS.filter(t => !t.group || t.group === 'Trading').filter(t => !['defi1','defi2','defi3'].includes(t.id)).map(t => (
+          {TOPICS.filter(t => !t.group || t.group === 'Trading').filter(t => !['defi1','defi2','defi3','macro1','macro2','macro3','macro4'].includes(t.id)).map(t => (
+            <button key={t.id} onClick={() => setActiveTopic(t.id)}
+              style={{ ...S.navItem, ...(activeTopic === t.id ? S.navItemActive : {}) }}>
+              <span>{t.icon}</span> {t.label}
+            </button>
+          ))}
+          <div style={{...S.sidebarGroup, marginTop:'12px'}}>🌐 MACRO / VĨ MÔ</div>
+          {TOPICS.filter(t => ['macro1','macro2','macro3','macro4'].includes(t.id)).map(t => (
             <button key={t.id} onClick={() => setActiveTopic(t.id)}
               style={{ ...S.navItem, ...(activeTopic === t.id ? S.navItemActive : {}) }}>
               <span>{t.icon}</span> {t.label}
@@ -59,6 +72,10 @@ function renderTopic(id: TopicId) {
     case 'mtf': return <MtfSection />;
     case 'rules': return <RulesSection />;
     case 'rr': return <RrSection />;
+    case 'macro1': return <Macro1 />;
+    case 'macro2': return <Macro2 />;
+    case 'macro3': return <Macro3 />;
+    case 'macro4': return <Macro4 />;
     case 'defi1': return <Defi1 />;
     case 'defi2': return <Defi2 />;
     case 'defi3': return <Defi3 />;
@@ -380,6 +397,244 @@ function RrSection() {
       <div style={{marginTop:'16px',padding:'12px',background:'#1e293b40',borderRadius:'8px',border:'1px dashed #64748b'}}>
         <p style={{color:'#94a3b8',fontSize:'0.82rem',margin:0}}>📝 <em>Nội dung sẽ được cập nhật thêm: Position sizing nâng cao, trailing stop strategies, correlation risk management.</em></p>
       </div>
+    </article>
+  );
+}
+
+function Macro1() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>👑 BTC Dominance (BTC.D) — La Bàn Vĩ Mô</h3>
+      <blockquote style={S.quote}>"BTC.D là chiếc la bàn của toàn thị trường — nó cho bạn biết dòng tiền đang chảy vào BTC hay chảy ra altcoin."</blockquote>
+      <p style={S.p}>Bitcoin Dominance (BTC.D) đo lường tỷ lệ vốn hóa thị trường của BTC so với <em>toàn bộ</em> thị trường crypto. Đây là chỉ số vĩ mô quan trọng nhất để xác định "giai đoạn" của chu kỳ.</p>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Công thức:</h4>
+        <div style={{background:'#0a0e17',borderRadius:'8px',padding:'12px',fontFamily:'monospace',fontSize:'0.9rem',color:'#fbbf24',margin:'8px 0',textAlign:'center'}}>
+          BTC.D (%) = (Vốn hóa BTC / Tổng vốn hóa Crypto) × 100
+        </div>
+      </div>
+      <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <div style={{flex:1,minWidth:'180px',background:'rgba(239,68,68,0.06)',border:'1px solid #ef444440',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#ef4444',margin:'0 0 6px',fontSize:'0.88rem'}}>BTC.D tăng</h4>
+          <ul style={{...S.ul,fontSize:'0.8rem'}}>
+            <li>Tiền chạy vào BTC, rời altcoin</li>
+            <li>Môi trường <strong>"tránh rủi ro"</strong></li>
+            <li>→ Giảm vị thế altcoin</li>
+            <li>→ Ưu tiên giữ BTC hoặc stablecoin</li>
+          </ul>
+        </div>
+        <div style={{flex:1,minWidth:'180px',background:'rgba(34,197,94,0.06)',border:'1px solid #22c55e40',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#22c55e',margin:'0 0 6px',fontSize:'0.88rem'}}>BTC.D giảm</h4>
+          <ul style={{...S.ul,fontSize:'0.8rem'}}>
+            <li>Tiền rời BTC, chảy sang altcoin</li>
+            <li>Môi trường <strong>"Altcoin Season"</strong></li>
+            <li>→ Tăng vị thế altcoin</li>
+            <li>→ Tìm BUY trên các altcoin mạnh</li>
+          </ul>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Bảng đọc 4 trường hợp kết hợp BTC.D + Giá BTC:</h4>
+        <div style={{overflowX:'auto',marginTop:'8px'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.78rem'}}>
+            <thead><tr style={{borderBottom:'1px solid #334155'}}>
+              <th style={{padding:'6px',textAlign:'left',color:'#94a3b8'}}>Giá BTC</th>
+              <th style={{padding:'6px',textAlign:'left',color:'#94a3b8'}}>BTC.D</th>
+              <th style={{padding:'6px',textAlign:'left',color:'#94a3b8'}}>Ý nghĩa</th>
+              <th style={{padding:'6px',textAlign:'left',color:'#94a3b8'}}>Hành động</th>
+            </tr></thead>
+            <tbody>
+              <tr style={{borderBottom:'1px solid #1e2d4a'}}><td style={{padding:'6px',color:'#22c55e'}}>Tăng</td><td style={{padding:'6px',color:'#22c55e'}}>Tăng</td><td style={{padding:'6px',color:'#cbd5e1'}}>BTC hút hết thanh khoản</td><td style={{padding:'6px',color:'#fbbf24'}}>Giữ BTC, tránh alt</td></tr>
+              <tr style={{borderBottom:'1px solid #1e2d4a'}}><td style={{padding:'6px',color:'#22c55e'}}>Tăng</td><td style={{padding:'6px',color:'#ef4444'}}>Giảm</td><td style={{padding:'6px',color:'#cbd5e1'}}>Altseason — alt vượt BTC</td><td style={{padding:'6px',color:'#22c55e',fontWeight:'bold'}}>Max exposure altcoin</td></tr>
+              <tr style={{borderBottom:'1px solid #1e2d4a'}}><td style={{padding:'6px',color:'#ef4444'}}>Giảm</td><td style={{padding:'6px',color:'#22c55e'}}>Tăng</td><td style={{padding:'6px',color:'#cbd5e1'}}>Chạy trốn sang BTC</td><td style={{padding:'6px',color:'#f97316'}}>Bán alt → giữ BTC</td></tr>
+              <tr><td style={{padding:'6px',color:'#ef4444'}}>Giảm</td><td style={{padding:'6px',color:'#ef4444'}}>Giảm</td><td style={{padding:'6px',color:'#cbd5e1'}}>Rút tiền khỏi toàn thị trường</td><td style={{padding:'6px',color:'#ef4444',fontWeight:'bold'}}>Rút vào stablecoin/USD</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Các vùng lịch sử quan trọng:</h4>
+        <ul style={S.ul}>
+          <li><strong style={{color:'#ef4444'}}>70%+</strong> — Vùng bão hòa BTC.D, alt thường bắt đầu tăng mạnh trở lại</li>
+          <li><strong style={{color:'#eab308'}}>55–65%</strong> — Vùng hiện tại (2026), BTC mạnh do ETF tổ chức</li>
+          <li><strong style={{color:'#22c55e'}}>40–45%</strong> — Vùng Altseason đỉnh điểm, thường xảy ra cuối chu kỳ</li>
+          <li><strong style={{color:'#94a3b8'}}>~37% (all-time low)</strong> — Đỉnh Altseason 2018, bubble ICO</li>
+        </ul>
+      </div>
+      <div style={S.tipBox}><strong>💡 Áp dụng thực tế:</strong> Hệ thống scan tín hiệu của chúng ta đã tích hợp BTC trend + BTC momentum (3 nến gần nhất) làm bộ lọc: khi BTC đang giảm liên tục → nâng threshold confidence cho lệnh BUY altcoin để tránh đi ngược dòng tiền tổng thể.</div>
+      <div style={S.warningBox}><strong>⚠️ Lưu ý:</strong> BTC.D cao không có nghĩa là altcoin sẽ không tăng — nhưng nó tăng yếu hơn và rủi ro hơn. Chỉ vào altcoin khi BTC.D đang giảm hoặc ổn định, KHÔNG khi BTC.D đang tăng mạnh.</div>
+    </article>
+  );
+}
+
+function Macro2() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>💵 USDT Dominance — Phong Vũ Biểu Tâm Lý</h3>
+      <blockquote style={S.quote}>"Khi USDT.D tăng, nhà đầu tư đang 'ngồi chờ' bằng tiền mặt. Khi USDT.D giảm, tiền đang ào vào thị trường."</blockquote>
+      <p style={S.p}>USDT Dominance đo tỷ lệ vốn hóa của Tether (USDT) trong tổng vốn hóa crypto. Đây là chỉ báo tâm lý và dòng tiền — phân biệt tiền đang "ẩn náu" hay đang "sẵn sàng tấn công".</p>
+      <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <div style={{flex:1,minWidth:'200px',background:'rgba(239,68,68,0.06)',border:'1px solid #ef444440',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#ef4444',margin:'0 0 6px',fontSize:'0.88rem'}}>USDT.D tăng 📈</h4>
+          <ul style={{...S.ul,fontSize:'0.8rem'}}>
+            <li>Tiền rút vào stablecoin</li>
+            <li>Tâm lý <strong>sợ hãi / thận trọng</strong></li>
+            <li>→ Áp lực giảm với BTC & altcoin</li>
+            <li>→ Cảnh báo thị trường sắp giảm</li>
+          </ul>
+        </div>
+        <div style={{flex:1,minWidth:'200px',background:'rgba(34,197,94,0.06)',border:'1px solid #22c55e40',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#22c55e',margin:'0 0 6px',fontSize:'0.88rem'}}>USDT.D giảm 📉</h4>
+          <ul style={{...S.ul,fontSize:'0.8rem'}}>
+            <li>Tiền rời stablecoin vào crypto</li>
+            <li>Tâm lý <strong>tham lam / lạc quan</strong></li>
+            <li>→ Lực đẩy tăng BTC & altcoin</li>
+            <li>→ Xác nhận bull market</li>
+          </ul>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Kỹ thuật nâng cao: So sánh BTC.D vs USDT.D</h4>
+        <p style={{...S.p,margin:'4px 0 10px'}}>Khi BTC.D giảm, câu hỏi là tiền đó đi đâu?</p>
+        <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+          <div style={{background:'#1e293b',border:'1px solid #334155',borderRadius:'8px',padding:'10px'}}>
+            <strong style={{color:'#22c55e',fontSize:'0.82rem'}}>BTC.D giảm + USDT.D không đổi</strong>
+            <p style={{color:'#94a3b8',fontSize:'0.78rem',margin:'4px 0 0'}}>→ Tiền chảy sang <strong>altcoin</strong>. Đây là Altseason thật sự — vào altcoin ngay!</p>
+          </div>
+          <div style={{background:'#1e293b',border:'1px solid #334155',borderRadius:'8px',padding:'10px'}}>
+            <strong style={{color:'#ef4444',fontSize:'0.82rem'}}>BTC.D giảm + USDT.D tăng</strong>
+            <p style={{color:'#94a3b8',fontSize:'0.78rem',margin:'4px 0 0'}}>→ Tiền chảy vào <strong>tiền mặt</strong>. Nhà đầu tư đang chốt lời, chuẩn bị cho đợt giảm!</p>
+          </div>
+          <div style={{background:'#1e293b',border:'1px solid #334155',borderRadius:'8px',padding:'10px'}}>
+            <strong style={{color:'#eab308',fontSize:'0.82rem'}}>BTC.D tăng + USDT.D giảm</strong>
+            <p style={{color:'#94a3b8',fontSize:'0.78rem',margin:'4px 0 0'}}>→ Stablecoin đang được chuyển vào <strong>BTC</strong>. Tổ chức mua BTC. Chờ dòng tiền lan sang alt.</p>
+          </div>
+        </div>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Theo dõi ở đâu?</h4>
+        <ul style={S.ul}>
+          <li><strong>TradingView:</strong> Gõ <code style={{background:'#0f172a',padding:'2px 6px',borderRadius:'4px',color:'#fbbf24'}}>USDT.D</code> — xem như chart thường, áp dụng EMA/RSI</li>
+          <li><strong>CoinMarketCap:</strong> Trang chủ có widget dominance realtime</li>
+          <li><strong>CoinGecko:</strong> Tương tự, mục Global Market Cap</li>
+        </ul>
+      </div>
+      <div style={S.tipBox}><strong>💡 Quy tắc thực chiến:</strong> Trước khi vào bất kỳ lệnh altcoin nào, kiểm tra nhanh USDT.D. Nếu USDT.D đang tăng mạnh (tiền đang "sợ") → giảm size lệnh hoặc đứng ngoài, dù setup chart trông rất đẹp.</div>
+    </article>
+  );
+}
+
+function Macro3() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>⚖️ Tỷ Lệ ETH/BTC — Đồng Hồ Altseason</h3>
+      <blockquote style={S.quote}>"ETH/BTC tăng = Altseason đang đến. ETH/BTC giảm = BTC đang thống trị, altcoin yếu."</blockquote>
+      <p style={S.p}>Tỷ lệ ETH/BTC cho biết 1 ETH đổi được bao nhiêu BTC. Đây là chỉ báo sớm nhất và đáng tin nhất cho Altseason — ETH luôn dẫn đầu trước khi altcoin nhỏ tăng.</p>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Cách tính:</h4>
+        <div style={{background:'#0a0e17',borderRadius:'8px',padding:'12px',fontFamily:'monospace',fontSize:'0.88rem',color:'#fbbf24',margin:'8px 0',textAlign:'center'}}>
+          ETH/BTC = Giá ETH (USD) ÷ Giá BTC (USD)
+        </div>
+        <p style={{...S.p,margin:'8px 0 0',fontSize:'0.82rem'}}>Ví dụ: ETH = $3,000, BTC = $100,000 → ETH/BTC = 0.03 (1 ETH = 0.03 BTC)</p>
+      </div>
+      <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <div style={{flex:1,minWidth:'200px',background:'rgba(34,197,94,0.06)',border:'1px solid #22c55e40',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#22c55e',margin:'0 0 6px',fontSize:'0.88rem'}}>ETH/BTC tăng 📈</h4>
+          <ul style={{...S.ul,fontSize:'0.8rem'}}>
+            <li>ETH đang vượt trội so với BTC</li>
+            <li>Altcoin thường tăng theo ETH</li>
+            <li>→ <strong>Altseason đang bắt đầu</strong></li>
+            <li>→ Tăng vị thế altcoin ETH ecosystem</li>
+          </ul>
+        </div>
+        <div style={{flex:1,minWidth:'200px',background:'rgba(239,68,68,0.06)',border:'1px solid #ef444440',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#ef4444',margin:'0 0 6px',fontSize:'0.88rem'}}>ETH/BTC giảm 📉</h4>
+          <ul style={{...S.ul,fontSize:'0.8rem'}}>
+            <li>BTC đang chiếm ưu thế hơn ETH</li>
+            <li>Altcoin thường yếu</li>
+            <li>→ <strong>BTC Season, chưa phải lúc</strong></li>
+            <li>→ Ưu tiên BTC hơn altcoin</li>
+          </ul>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Thứ tự luân chuyển vốn điển hình trong 1 chu kỳ:</h4>
+        <div style={{display:'flex',flexDirection:'column',gap:'6px',marginTop:'8px'}}>
+          {[
+            {n:'1',c:'#fbbf24',t:'BTC bứt phá (BTC.D tăng)','d':'Tổ chức mua BTC. ETH/BTC thấp.'},
+            {n:'2',c:'#f97316',t:'ETH bứt phá (ETH/BTC tăng)','d':'ETH theo BTC. BTC.D bắt đầu giảm.'},
+            {n:'3',c:'#22c55e',t:'Large-cap alt tăng','d':'SOL, BNB, AVAX... BTC.D tiếp tục giảm.'},
+            {n:'4',c:'#a855f7',t:'Mid/small cap alt tăng bùng nổ','d':'Memecoin, micro-cap tăng mạnh nhất.'},
+            {n:'5',c:'#ef4444',t:'Bubble vỡ (BTC.D tăng mạnh)','d':'Dump toàn thị trường, tiền rút khỏi alt.'},
+          ].map(({n,c,t,d}) => (
+            <div key={n} style={{display:'flex',gap:'10px',alignItems:'flex-start'}}>
+              <span style={{background:c+'30',color:c,padding:'2px 8px',borderRadius:'4px',fontWeight:'bold',fontSize:'0.75rem',flexShrink:0,minWidth:'20px',textAlign:'center'}}>{n}</span>
+              <div><strong style={{color:'#e2e8f0',fontSize:'0.82rem'}}>{t}</strong><p style={{color:'#94a3b8',fontSize:'0.75rem',margin:'2px 0 0'}}>{d}</p></div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={S.tipBox}><strong>💡 Chiến lược xoay vòng:</strong> Theo dõi ETH/BTC trên TradingView (gõ <code style={{background:'#0f172a',padding:'2px 6px',borderRadius:'4px',color:'#fbbf24'}}>ETHBTC</code>). Khi tỷ lệ cắt lên MA50 → bắt đầu tăng vị thế altcoin ETH ecosystem (AAVE, LINK, UNI). Khi cắt xuống → về BTC.</div>
+    </article>
+  );
+}
+
+function Macro4() {
+  return (
+    <article style={S.article}>
+      <h3 style={S.h3}>📡 Total 1 / Total 2 / Total 3 — Nhiệt Kế Thị Trường</h3>
+      <blockquote style={S.quote}>"Total 3 tăng = tiền đang vào altcoin thật sự. Đây là tín hiệu Altseason mạnh nhất."</blockquote>
+      <p style={S.p}>Ba chỉ số tổng vốn hóa này giúp bạn xác định chính xác <strong>tiền đang ở đâu</strong> trong hệ sinh thái crypto và giai đoạn thị trường đang ở đâu trong chu kỳ.</p>
+      <div style={{display:'flex',flexDirection:'column',gap:'10px',marginBottom:'16px'}}>
+        <div style={{background:'rgba(251,191,36,0.06)',border:'1px solid #fbbf2440',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#fbbf24',margin:'0 0 6px',fontSize:'0.9rem'}}>TOTAL (Total 1) — Tổng thị trường</h4>
+          <p style={{color:'#cbd5e1',fontSize:'0.82rem',margin:0}}>= Tổng vốn hóa <strong>TẤT CẢ</strong> crypto (BTC + ETH + altcoin + stablecoin)</p>
+          <p style={{color:'#94a3b8',fontSize:'0.78rem',marginTop:'6px'}}>Đo sức khỏe toàn ngành. Total tăng = dòng tiền mới vào thị trường. Dùng trên TradingView: <code style={{background:'#0f172a',padding:'1px 5px',borderRadius:'3px',color:'#fbbf24'}}>TOTAL</code></p>
+        </div>
+        <div style={{background:'rgba(59,130,246,0.06)',border:'1px solid #3b82f640',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#3b82f6',margin:'0 0 6px',fontSize:'0.9rem'}}>TOTAL2 — Thị trường trừ BTC</h4>
+          <p style={{color:'#cbd5e1',fontSize:'0.82rem',margin:0}}>= Tổng vốn hóa <strong>trừ BTC</strong> (ETH + altcoin + stablecoin)</p>
+          <p style={{color:'#94a3b8',fontSize:'0.78rem',marginTop:'6px'}}>Đo sức mạnh của ETH và altcoin. Total2 tăng trong khi BTC đứng yên = tiền đang luân chuyển sang ETH/alt. <code style={{background:'#0f172a',padding:'1px 5px',borderRadius:'3px',color:'#3b82f6'}}>TOTAL2</code></p>
+        </div>
+        <div style={{background:'rgba(168,85,247,0.06)',border:'1px solid #a855f740',borderRadius:'10px',padding:'14px'}}>
+          <h4 style={{color:'#a855f7',margin:'0 0 6px',fontSize:'0.9rem'}}>TOTAL3 — Vốn hóa altcoin thuần</h4>
+          <p style={{color:'#cbd5e1',fontSize:'0.82rem',margin:0}}>= Tổng vốn hóa <strong>trừ BTC và ETH</strong> (chỉ altcoin)</p>
+          <p style={{color:'#94a3b8',fontSize:'0.78rem',marginTop:'6px'}}>Đây là nhiệt kế Altseason chính xác nhất. Total3 bứt phá mạnh = đỉnh altseason sắp đến. <code style={{background:'#0f172a',padding:'1px 5px',borderRadius:'3px',color:'#a855f7'}}>TOTAL3</code></p>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={S.h4}>Cách đọc kết hợp 3 chỉ số:</h4>
+        <div style={{display:'flex',flexDirection:'column',gap:'8px',marginTop:'8px',fontSize:'0.8rem'}}>
+          <div style={{background:'#1e293b',borderRadius:'8px',padding:'10px',border:'1px solid #22c55e30'}}>
+            <strong style={{color:'#22c55e'}}>Total1 ↑ | Total2 ↑ | Total3 ↑</strong>
+            <p style={{color:'#94a3b8',margin:'4px 0 0'}}>→ Bull market toàn diện, tiền vào khắp nơi. Đỉnh bull thường ở đây.</p>
+          </div>
+          <div style={{background:'#1e293b',borderRadius:'8px',padding:'10px',border:'1px solid #fbbf2430'}}>
+            <strong style={{color:'#fbbf24'}}>Total1 ↑ | Total2 → | Total3 →</strong>
+            <p style={{color:'#94a3b8',margin:'4px 0 0'}}>→ BTC đang dẫn dắt, altcoin chưa hưởng lợi. Giai đoạn sớm của chu kỳ.</p>
+          </div>
+          <div style={{background:'#1e293b',borderRadius:'8px',padding:'10px',border:'1px solid #3b82f630'}}>
+            <strong style={{color:'#3b82f6'}}>Total1 ↑ | Total2 ↑ | Total3 →</strong>
+            <p style={{color:'#94a3b8',margin:'4px 0 0'}}>→ ETH đang tăng nhưng alt small/mid cap chưa theo. Altseason chưa lan rộng.</p>
+          </div>
+          <div style={{background:'#1e293b',borderRadius:'8px',padding:'10px',border:'1px solid #ef444430'}}>
+            <strong style={{color:'#ef4444'}}>Total1 ↓ | Total2 ↓ | Total3 ↓</strong>
+            <p style={{color:'#94a3b8',margin:'4px 0 0'}}>→ Bear market, tiền rút toàn thị trường. Tránh long, ưu tiên stablecoin.</p>
+          </div>
+        </div>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={S.h4}>Checklist macro trước khi vào lệnh altcoin:</h4>
+        <ul style={S.ul}>
+          <li>✅ <strong>BTC.D</strong> đang giảm hoặc ổn định (không tăng mạnh)</li>
+          <li>✅ <strong>USDT.D</strong> đang giảm (tiền đang vào thị trường, không rút ra)</li>
+          <li>✅ <strong>ETH/BTC</strong> đang tăng hoặc sideway (altseason đang hình thành)</li>
+          <li>✅ <strong>Total2/Total3</strong> đang uptrend (tiền đang vào altcoin)</li>
+          <li>✅ <strong>BTC</strong> đang uptrend hoặc sideway (không đang dump mạnh)</li>
+        </ul>
+        <p style={{...S.p,margin:'10px 0 0',color:'#fbbf24',fontSize:'0.82rem'}}>Đủ 5 điều kiện trên → đây là môi trường tốt nhất để trade altcoin với win rate cao nhất.</p>
+      </div>
+      <div style={S.tipBox}><strong>💡 Kết hợp với hệ thống scan:</strong> Hệ thống auto-scan hiện tại đã dùng BTC trend + momentum làm bộ lọc. Sắp tới sẽ tích hợp thêm BTC.D và USDT.D realtime từ CoinGecko API để tự động áp dụng macro filter khi scan tín hiệu.</div>
     </article>
   );
 }

@@ -47,6 +47,70 @@ async function fetchCandles(symbol: string): Promise<Candle[]> {
   }));
 }
 
+/** Lấy BTC.D và USDT.D từ CoinGecko global market data */
+interface MacroData {
+  btcDominance: number;   // % BTC.D hiện tại
+  usdtDominance: number;  // % USDT.D hiện tại
+  totalMarketCap: number; // USD
+  marketCapChange24h: number; // % thay đổi 24h của tổng thị trường
+}
+
+async function fetchMacroData(): Promise<MacroData | null> {
+  try {
+    const res = await fetch('https://api.coingecko.com/api/v3/global', {
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const data = json.data;
+    const btcDom = data?.market_cap_percentage?.btc ?? 0;
+    const usdtDom = data?.market_cap_percentage?.usdt ?? 0;
+    const totalMcap = data?.total_market_cap?.usd ?? 0;
+    const mcapChange = data?.market_cap_change_percentage_24h_usd ?? 0;
+    return { btcDominance: btcDom, usdtDominance: usdtDom, totalMarketCap: totalMcap, marketCapChange24h: mcapChange };
+  } catch { return null; }
+}
+
+/**
+ * Đánh giá macro environment — trả về điểm môi trường tốt/xấu cho BUY/SELL altcoin.
+ * Dựa trên BTC.D + USDT.D + marketCap trend.
+ * score > 0 = thuận lợi cho BUY alt, < 0 = thuận lợi cho SELL alt
+ */
+function evaluateMacroEnvironment(macro: MacroData | null): {
+  favorsBuyAlt: boolean;
+  favorsSellAlt: boolean;
+  btcDomRising: boolean | null;
+  usdtDomRising: boolean | null;
+  description: string;
+} {
+  if (!macro) return { favorsBuyAlt: true, favorsSellAlt: true, btcDomRising: null, usdtDomRising: null, description: 'Macro unavailable' };
+
+  // BTC.D > 60% = BTC season (yếu tố bất lợi cho alt buy)
+  // BTC.D < 50% = Altseason (tốt cho alt buy)
+  const btcDomHigh = macro.btcDominance > 60;
+  const btcDomLow = macro.btcDominance < 50;
+
+  // USDT.D > 6% = tiền "sợ hãi" (bất lợi cho mọi long)
+  // USDT.D < 4% = tiền đang vào thị trường (tốt cho long)
+  const usdtDomHigh = macro.usdtDominance > 6;
+  const usdtDomLow = macro.usdtDominance < 4;
+
+  // Market cap giảm mạnh 24h = bearish environment
+  const marketFalling = macro.marketCapChange24h < -3;
+  const marketRising = macro.marketCapChange24h > 2;
+
+  const favorsBuyAlt = !btcDomHigh && !usdtDomHigh && !marketFalling;
+  const favorsSellAlt = (btcDomHigh || usdtDomHigh || marketFalling);
+
+  const desc = [
+    `BTC.D: ${macro.btcDominance.toFixed(1)}% (${btcDomHigh ? 'BTC season ⚠️' : btcDomLow ? 'Alt favorable ✅' : 'neutral'})`,
+    `USDT.D: ${macro.usdtDominance.toFixed(1)}% (${usdtDomHigh ? 'fear ⚠️' : usdtDomLow ? 'greedy ✅' : 'neutral'})`,
+    `MCap 24h: ${macro.marketCapChange24h.toFixed(1)}% (${marketFalling ? 'falling ⚠️' : marketRising ? 'rising ✅' : 'stable'})`,
+  ].join(' | ');
+
+  return { favorsBuyAlt, favorsSellAlt, btcDomRising: btcDomHigh, usdtDomRising: usdtDomHigh, description: desc };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const db = await getDB();
@@ -121,6 +185,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const COIN_LIST = await getWatchlist(db);
     let btcTrend = 'sideway';
 
+    // Fetch macro data (BTC.D, USDT.D) từ CoinGecko song song với BTC candles
+    const macroData = await fetchMacroData().catch(() => null);
+    const macroEnv = evaluateMacroEnvironment(macroData);
+    console.log('[Macro]', macroEnv.description);
+
     // BTC context nâng cao: check vị trí BTC so với key levels + momentum
     let btcNearResistance = false;
     let btcNearSupport = false;
@@ -194,6 +263,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // BTC đang push ngược hướng → giảm threshold (chặt hơn)
           if (btcMomentum === 'bearish' && sig.side === 'buy' && sig.confidence < 80) continue;
           if (btcMomentum === 'bullish' && sig.side === 'sell' && sig.confidence < 80) continue;
+
+          // ===== MACRO FILTER (BTC.D + USDT.D) =====
+          // Khi USDT.D cao (tiền sợ hãi) → chỉ nhận BUY nếu confidence rất cao (>= 85%)
+          // Khi BTC.D đang ở vùng cao (>60%) → BUY altcoin cần confidence cao hơn
+          // Điều này tránh vào lệnh buy alt trong môi trường macro bất lợi
+          if (macroData) {
+            if (sig.side === 'buy') {
+              // USDT.D > 6%: tiền đang "sợ" → cần tín hiệu rất mạnh mới buy alt
+              if (macroData.usdtDominance > 6 && sig.confidence < 85) continue;
+              // BTC.D > 62%: BTC đang hút tiền → chỉ buy alt khi confidence cao
+              if (macroData.btcDominance > 62 && sig.confidence < 82) continue;
+              // Market đang giảm mạnh 24h (> 3%) → không buy alt (chờ ổn định)
+              if (macroData.marketCapChange24h < -3 && sig.confidence < 90) continue;
+            }
+            if (sig.side === 'sell') {
+              // USDT.D > 7%: thị trường đang hoảng loạn → sell alt dễ win hơn, hạ threshold
+              // Không filter sell khi macro bearish — đây là lúc sell hiệu quả nhất
+              // Nhưng nếu market đang tăng mạnh (2%+) và USDT.D thấp → cẩn trọng hơn với sell
+              if (macroData.marketCapChange24h > 4 && macroData.usdtDominance < 4 && sig.confidence < 80) continue;
+            }
+          }
         }
 
         // Filter theo ETH context (cho ETH ecosystem coins):
@@ -244,6 +334,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ema200: result.emaData.ema200[lastIdx] ?? 0,
             volumeRatio: result.volumeAnalysis[lastIdx]?.volumeRatio ?? 0,
             prevCandles,
+            // Macro snapshot tại thời điểm signal
+            macro: macroData ? {
+              btcDominance: macroData.btcDominance,
+              usdtDominance: macroData.usdtDominance,
+              marketCapChange24h: macroData.marketCapChange24h,
+              btcTrend,
+              btcMomentum,
+            } : null,
           },
         };
 
@@ -260,7 +358,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 model: 'openai/gpt-oss-120b',
                 messages: [
                   { role: 'system', content: 'Bạn là AI trading assistant. Đánh giá nhanh signal trading bằng tiếng Việt (2-3 câu). Dựa trên phương pháp Key Level + Nến đảo chiều + EMA 34/89/200. Trả lời: NÊN VÀO / CẨN TRỌNG / KHÔNG NÊN + lý do ngắn.' },
-                  { role: 'user', content: `${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend} | Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)} | Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%\nBTC trend: ${btcTrend}\nLý do: ${sig.reason}` },
+                  { role: 'user', content: `${symbol} ${sig.side.toUpperCase()} | Pattern: ${sig.pattern.name} | Trend: ${sig.trend} | Entry: $${sig.entry} | SL: $${sig.sl.toFixed(4)} | TP: $${sig.tp.toFixed(4)} | R:R: ${sig.rr.toFixed(1)} | Volume: ${sig.volumeConfirm ? 'Xác nhận' : 'Thấp'} | Confidence: ${sig.confidence}%\nBTC trend: ${btcTrend} | BTC momentum: ${btcMomentum}\nMacro: ${macroEnv.description}\nLý do: ${sig.reason}` },
                 ],
                 temperature: 0.3, max_tokens: 200,
               }),
@@ -285,6 +383,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       tracked: trackResults.length,
       signals: newSignals,
       trackDetails: trackResults,
+      macro: macroData ? {
+        btcDominance: macroData.btcDominance.toFixed(1) + '%',
+        usdtDominance: macroData.usdtDominance.toFixed(1) + '%',
+        marketCapChange24h: macroData.marketCapChange24h.toFixed(1) + '%',
+        environment: macroEnv.description,
+      } : null,
     });
   } catch (err) {
     return res.status(500).json({ error: String(err) });
