@@ -9,7 +9,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 import type { IChartApi, Time, SeriesMarker } from 'lightweight-charts';
-import { fetchOandaGoldCandles, fetchOandaGoldDaily } from '../utils/craziiDataService';
+import { fetchOandaGoldCandles, fetchOandaGoldDaily, connectGoldWebSocket } from '../utils/craziiDataService';
+import type { LiveGoldCandle } from '../utils/craziiDataService';
 import { calculateAll, calculateADR, calculatePivot } from '../utils/craziiEngine';
 import type { Candle, CraziiResult, EnhancedSignal } from '../types/index';
 
@@ -198,14 +199,23 @@ function StatusPanel({ result, currentPrice }: { result: CraziiResult | null; cu
 }
 
 // ============================================================
-// CHART COMPONENT
+// CHART COMPONENT - Real-time update không rebuild
 // ============================================================
 function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiResult | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const csRef = useRef<any>(null);
+  const volRef = useRef<any>(null);
+  const initializedRef = useRef(false);
+  const lastCandleCountRef = useRef(0);
 
+  // Effect 1: Tạo chart 1 lần
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
+
+    // Chỉ rebuild chart nếu chưa có hoặc khi cần reset
+    if (chartRef.current && initializedRef.current) return;
+
     if (chartRef.current) { try { chartRef.current.remove(); } catch {} chartRef.current = null; }
 
     const container = containerRef.current;
@@ -226,61 +236,89 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
       wickUpColor: '#22c55e', wickDownColor: '#ef4444',
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
+    csRef.current = cs;
     cs.setData(candles.map(c => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
 
-    // Volume
     const vol = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    volRef.current = vol;
     vol.setData(candles.map(c => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e30' : '#ef444430' })));
 
-    if (result) {
-      // OP line
-      const lastOP = result.ops[result.ops.length - 1]?.op;
-      if (lastOP) cs.createPriceLine({ price: lastOP, color: '#fbbf24', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'OP' });
-
-      // MLP line
-      const lastMLP = result.mlps[result.mlps.length - 1]?.mlp;
-      if (lastMLP) cs.createPriceLine({ price: lastMLP, color: '#a855f7', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MLP' });
-
-      // KTR levels
-      const lastKTR = result.ktrs[result.ktrs.length - 1]?.levels;
-      if (lastKTR) {
-        cs.createPriceLine({ price: lastKTR.plus1, color: '#22c55e', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR+1' });
-        cs.createPriceLine({ price: lastKTR.plus2, color: '#22c55e', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR+2' });
-        cs.createPriceLine({ price: lastKTR.minus1, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR-1' });
-        cs.createPriceLine({ price: lastKTR.minus2, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR-2' });
-      }
-
-      // Signal markers
-      const markers: SeriesMarker<Time>[] = [];
-      for (const sig of result.enhancedSignals.slice(-20)) {
-        markers.push({
-          time: toT(sig.time),
-          position: sig.side === 'buy' ? 'belowBar' : 'aboveBar',
-          color: sig.side === 'buy' ? '#4ade80' : '#f87171',
-          shape: sig.side === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: `${sig.side.toUpperCase()} ${sig.confidence}%`,
-        });
-      }
-      for (const d of result.diamonds.slice(-10)) {
-        markers.push({
-          time: toT(d.time),
-          position: 'belowBar',
-          color: d.type === 'blue' ? '#00bcd4' : '#ff9800',
-          shape: 'circle',
-          text: `◆`,
-        });
-      }
-      if (markers.length > 0) {
-        markers.sort((a, b) => (a.time as number) - (b.time as number));
-        cs.setMarkers(markers);
-      }
-    }
+    lastCandleCountRef.current = candles.length;
+    initializedRef.current = true;
 
     const handleResize = () => { if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || 500 }); };
     window.addEventListener('resize', handleResize);
-    return () => { window.removeEventListener('resize', handleResize); try { chart.remove(); } catch {} chartRef.current = null; };
-  }, [candles, result]);
+    return () => { window.removeEventListener('resize', handleResize); try { chart.remove(); } catch {} chartRef.current = null; csRef.current = null; volRef.current = null; initializedRef.current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candles.length > 0]);
+
+  // Effect 2: Update nến real-time (không destroy chart)
+  useEffect(() => {
+    if (!csRef.current || !volRef.current || candles.length === 0) return;
+    const toT = (t: number): Time => (t + GMT7_OFFSET) as unknown as Time;
+    const last = candles[candles.length - 1];
+
+    // Update hoặc thêm nến mới nhất
+    csRef.current.update({ time: toT(last.time), open: last.open, high: last.high, low: last.low, close: last.close });
+    volRef.current.update({ time: toT(last.time), value: last.volume, color: last.close > last.open ? '#22c55e30' : '#ef444430' });
+
+    // Nếu có nến mới (count tăng), setData lại toàn bộ
+    if (candles.length > lastCandleCountRef.current + 1) {
+      csRef.current.setData(candles.map((c: Candle) => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
+      volRef.current.setData(candles.map((c: Candle) => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e30' : '#ef444430' })));
+      lastCandleCountRef.current = candles.length;
+    }
+  }, [candles]);
+
+  // Effect 3: Vẽ price lines + markers khi result thay đổi
+  useEffect(() => {
+    if (!csRef.current || !result) return;
+    const cs = csRef.current;
+    const toT = (t: number): Time => (t + GMT7_OFFSET) as unknown as Time;
+
+    // OP line
+    const lastOP = result.ops[result.ops.length - 1]?.op;
+    if (lastOP) cs.createPriceLine({ price: lastOP, color: '#fbbf24', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'OP' });
+
+    // MLP line
+    const lastMLP = result.mlps[result.mlps.length - 1]?.mlp;
+    if (lastMLP) cs.createPriceLine({ price: lastMLP, color: '#a855f7', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MLP' });
+
+    // KTR levels
+    const lastKTR = result.ktrs[result.ktrs.length - 1]?.levels;
+    if (lastKTR) {
+      cs.createPriceLine({ price: lastKTR.plus1, color: '#22c55e', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR+1' });
+      cs.createPriceLine({ price: lastKTR.plus2, color: '#22c55e', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR+2' });
+      cs.createPriceLine({ price: lastKTR.minus1, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR-1' });
+      cs.createPriceLine({ price: lastKTR.minus2, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR-2' });
+    }
+
+    // Signal markers
+    const markers: SeriesMarker<Time>[] = [];
+    for (const sig of result.enhancedSignals.slice(-20)) {
+      markers.push({
+        time: toT(sig.time),
+        position: sig.side === 'buy' ? 'belowBar' : 'aboveBar',
+        color: sig.side === 'buy' ? '#4ade80' : '#f87171',
+        shape: sig.side === 'buy' ? 'arrowUp' : 'arrowDown',
+        text: `${sig.side.toUpperCase()} ${sig.confidence}%`,
+      });
+    }
+    for (const d of result.diamonds.slice(-10)) {
+      markers.push({
+        time: toT(d.time),
+        position: 'belowBar',
+        color: d.type === 'blue' ? '#00bcd4' : '#ff9800',
+        shape: 'circle',
+        text: `◆`,
+      });
+    }
+    if (markers.length > 0) {
+      markers.sort((a, b) => (a.time as number) - (b.time as number));
+      cs.setMarkers(markers);
+    }
+  }, [result]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 450 }} />;
 }
@@ -332,6 +370,33 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
     loadData(timeframe);
   }, [timeframe, loadData]);
 
+  // WebSocket real-time: cập nhật nến mới nhất liên tục
+  useEffect(() => {
+    const wsConn = connectGoldWebSocket(timeframe, (liveCandle: LiveGoldCandle) => {
+      setCurrentPrice(liveCandle.close);
+      setCandles(prev => {
+        if (prev.length === 0) return prev;
+        const copy = [...prev];
+        const lastIdx = copy.length - 1;
+        if (copy[lastIdx].time === liveCandle.time) {
+          // Update nến hiện tại (chưa đóng)
+          copy[lastIdx] = { time: liveCandle.time, open: liveCandle.open, high: liveCandle.high, low: liveCandle.low, close: liveCandle.close, volume: liveCandle.volume };
+        } else if (liveCandle.time > copy[lastIdx].time) {
+          // Nến mới xuất hiện
+          copy.push({ time: liveCandle.time, open: liveCandle.open, high: liveCandle.high, low: liveCandle.low, close: liveCandle.close, volume: liveCandle.volume });
+          // Khi nến đóng → recalc engine
+          if (liveCandle.isClosed) {
+            loadData(timeframe);
+          }
+        }
+        return copy;
+      });
+      setLastUpdate(new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
+    });
+
+    return () => { wsConn.close(); };
+  }, [timeframe, loadData]);
+
   // Re-calculate khi đổi minConfidence (không fetch lại, chỉ re-run engine)
   useEffect(() => {
     if (candles.length === 0) return;
@@ -344,11 +409,11 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
       });
       setResult(craziiResult);
     });
-  }, [minConfidence, candles]);
+  }, [minConfidence]);
 
-  // Polling: refresh data mỗi 30s (không rebuild layout)
+  // Backup polling: recalc engine mỗi 60s (phòng WS chết)
   useEffect(() => {
-    const timer = setInterval(() => { loadData(timeframe); }, 30000);
+    const timer = setInterval(() => { loadData(timeframe); }, 60000);
     return () => clearInterval(timer);
   }, [timeframe, loadData]);
 

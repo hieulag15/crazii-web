@@ -1,17 +1,31 @@
 /**
  * CRAZII Data Service - Riêng biệt cho hệ thống CRAZII
- * Nguồn data: Binance Futures XAUUSDT (giá vàng spot, chênh OANDA ~$3)
- * Hoàn toàn tách biệt với dataService.ts (Key Level - Crypto)
+ * Nguồn data chính: Twelve Data API (XAU/USD Forex Spot - giá khớp OANDA)
+ * Fallback: Binance Futures XAUUSDT
  *
- * Lý do dùng Binance: OANDA/TradingView không có public API free.
- * Binance XAUUSDT perpetual futures tracking giá spot, chênh rất nhỏ.
- * Logic CRAZII (OP, MLP, KTR) dựa trên biến động tương đối nên không bị ảnh hưởng.
+ * Twelve Data free tier: 800 req/ngày, 8 req/phút
+ * Hỗ trợ: 1min, 5min, 15min, 30min, 1h, 4h, 1day
+ * Symbol: XAU/USD (Gold Spot giống OANDA)
+ *
+ * Để sử dụng: Đăng ký free tại https://twelvedata.com
+ * Lấy API key, đặt vào .env: VITE_TWELVEDATA_KEY=your_key
  */
 
 import type { Candle } from '../types/index.js';
 
+// Twelve Data config
+const TWELVE_DATA_BASE = 'https://api.twelvedata.com';
+const TWELVE_DATA_KEY = (import.meta as any).env?.VITE_TWELVEDATA_KEY || '';
+
+// Binance fallback
 const BINANCE_FUTURES = 'https://fapi.binance.com/fapi/v1';
 const CORS_PROXY = 'https://corsproxy.io/?';
+
+// Interval mapping for Twelve Data
+const TD_INTERVALS: Record<string, string> = {
+  '1m': '1min', '5m': '5min', '15m': '15min',
+  '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1day',
+};
 
 async function fetchBinance(url: string): Promise<Response> {
   try {
@@ -22,19 +36,45 @@ async function fetchBinance(url: string): Promise<Response> {
 }
 
 /**
- * Lấy XAUUSDT candles từ Binance Futures
+ * Lấy XAU/USD candles từ Twelve Data (giá FX Spot chính xác)
+ * Fallback sang Binance XAUUSDT nếu không có API key hoặc lỗi
  */
 export async function fetchOandaGoldCandles(
   interval = '5m',
   limit = 1000
 ): Promise<Candle[]> {
+  // Thử Twelve Data trước (nếu có API key)
+  if (TWELVE_DATA_KEY) {
+    try {
+      const tdInterval = TD_INTERVALS[interval] || '5min';
+      const url = `${TWELVE_DATA_BASE}/time_series?symbol=XAU/USD&interval=${tdInterval}&outputsize=${Math.min(limit, 800)}&apikey=${TWELVE_DATA_KEY}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'ok' && data.values && data.values.length > 0) {
+          // Twelve Data trả về mới nhất ở đầu, cần reverse
+          const candles: Candle[] = data.values.map((v: any) => ({
+            time: Math.floor(new Date(v.datetime).getTime() / 1000),
+            open: parseFloat(v.open),
+            high: parseFloat(v.high),
+            low: parseFloat(v.low),
+            close: parseFloat(v.close),
+            volume: parseFloat(v.volume || '0'),
+          })).reverse();
+          return candles;
+        }
+      }
+    } catch (e) {
+      console.warn('[CRAZII] Twelve Data failed, using Binance fallback:', e);
+    }
+  }
+
+  // Fallback: Binance XAUUSDT Futures
   try {
     const url = `${BINANCE_FUTURES}/klines?symbol=XAUUSDT&interval=${interval}&limit=${limit}`;
     const response = await fetchBinance(url);
     const data = await response.json();
-
     if (!Array.isArray(data) || data.length === 0) return [];
-
     return data.map((k: unknown[]) => ({
       time: Math.floor((k[0] as number) / 1000),
       open: parseFloat(k[1] as string),
@@ -44,7 +84,7 @@ export async function fetchOandaGoldCandles(
       volume: parseFloat(k[5] as string),
     }));
   } catch (e) {
-    console.error('[CRAZII] Fetch failed:', e);
+    console.error('[CRAZII] All sources failed:', e);
     return [];
   }
 }
@@ -54,4 +94,73 @@ export async function fetchOandaGoldCandles(
  */
 export async function fetchOandaGoldDaily(limit = 10): Promise<Candle[]> {
   return fetchOandaGoldCandles('1d', limit);
+}
+
+/**
+ * WebSocket real-time cho XAUUSDT (Binance Futures)
+ * Twelve Data WebSocket cần plan Pro ($30/mo) nên dùng Binance WS free
+ * Giá Binance XAUUSDT chênh OANDA ~$3-5 nhưng biến động tick giống nhau
+ */
+export interface LiveGoldCandle extends Candle {
+  isClosed: boolean;
+}
+
+export function connectGoldWebSocket(
+  interval: string,
+  onUpdate: (candle: LiveGoldCandle) => void
+): { close: () => void } {
+  const stream = `xauusdt@kline_${interval}`;
+  let isClosed = false;
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function connect() {
+    if (isClosed) return;
+    ws = new WebSocket('wss://fstream.binance.com/ws');
+
+    ws.onopen = () => {
+      console.log('[CRAZII-WS] Connected, subscribing:', stream);
+      ws!.send(JSON.stringify({ method: 'SUBSCRIBE', params: [stream], id: 1 }));
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.id || data.result !== undefined) return;
+        const kline = data.k;
+        if (!kline) return;
+
+        onUpdate({
+          time: Math.floor(kline.t / 1000),
+          open: parseFloat(kline.o),
+          high: parseFloat(kline.h),
+          low: parseFloat(kline.l),
+          close: parseFloat(kline.c),
+          volume: parseFloat(kline.v),
+          isClosed: kline.x,
+        });
+      } catch { /* skip */ }
+    };
+
+    ws.onerror = () => {
+      if (!isClosed) console.warn('[CRAZII-WS] Error, will reconnect');
+    };
+
+    ws.onclose = () => {
+      if (!isClosed) {
+        console.log('[CRAZII-WS] Closed, reconnecting in 3s...');
+        reconnectTimer = setTimeout(connect, 3000);
+      }
+    };
+  }
+
+  connect();
+
+  return {
+    close: () => {
+      isClosed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) { try { ws.close(); } catch {} }
+    },
+  };
 }
