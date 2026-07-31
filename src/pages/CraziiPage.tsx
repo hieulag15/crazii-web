@@ -1,15 +1,15 @@
 /**
  * CRAZII Trading System Page
  * Hệ thống CRAZII + FVG/OB + Signal Call tự động
- * Cặp giao dịch: XAU/USD (Vàng OANDA - Spot)
+ * Cặp giao dịch: OANDA:XAUUSD (Vàng / Đô la Mỹ - Forex Spot)
  * Logic hợp lưu: Tam Điểm Hội Tụ + Nhấn Chìm + FVG/OB
+ * TÁCH BIỆT hoàn toàn với Key Level (crypto)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 import type { IChartApi, Time, SeriesMarker } from 'lightweight-charts';
-import { fetchCandles, connectWebSocket, fetchDailyCandles } from '../utils/dataService';
-import type { LiveCandle } from '../utils/dataService';
+import { fetchOandaGoldCandles, fetchOandaGoldDaily, startOandaGoldPolling } from '../utils/craziiDataService';
 import { calculateAll, calculateADR, calculatePivot } from '../utils/craziiEngine';
 import type { Candle, CraziiResult, EnhancedSignal } from '../types/index';
 
@@ -26,7 +26,60 @@ function fmtTime(ts: number): string {
 }
 
 // ============================================================
-// CONFIDENCE BADGE COMPONENT
+// SIGNAL OUTCOME: Tính trạng thái signal (đang chờ / TP / SL)
+// ============================================================
+type SignalOutcome = 'pending' | 'tp1' | 'tp2' | 'tp3' | 'sl';
+
+function getSignalOutcome(signal: EnhancedSignal, candles: Candle[]): { outcome: SignalOutcome; hitPrice: number | null; hitTime: number | null } {
+  // Tìm vị trí nến signal
+  const sigIdx = candles.findIndex(c => c.time === signal.time);
+  if (sigIdx < 0 || sigIdx >= candles.length - 1) return { outcome: 'pending', hitPrice: null, hitTime: null };
+
+  const isBuy = signal.side === 'buy';
+
+  for (let i = sigIdx + 1; i < candles.length; i++) {
+    const c = candles[i];
+    // Check SL first (worst case)
+    if (isBuy && c.low <= signal.sl) {
+      return { outcome: 'sl', hitPrice: signal.sl, hitTime: c.time };
+    }
+    if (!isBuy && c.high >= signal.sl) {
+      return { outcome: 'sl', hitPrice: signal.sl, hitTime: c.time };
+    }
+    // Check TP3
+    if (isBuy && c.high >= signal.tp3) {
+      return { outcome: 'tp3', hitPrice: signal.tp3, hitTime: c.time };
+    }
+    if (!isBuy && c.low <= signal.tp3) {
+      return { outcome: 'tp3', hitPrice: signal.tp3, hitTime: c.time };
+    }
+    // Check TP2
+    if (isBuy && c.high >= signal.tp2) {
+      return { outcome: 'tp2', hitPrice: signal.tp2, hitTime: c.time };
+    }
+    if (!isBuy && c.low <= signal.tp2) {
+      return { outcome: 'tp2', hitPrice: signal.tp2, hitTime: c.time };
+    }
+    // Check TP1
+    if (isBuy && c.high >= signal.tp1) {
+      return { outcome: 'tp1', hitPrice: signal.tp1, hitTime: c.time };
+    }
+    if (!isBuy && c.low <= signal.tp1) {
+      return { outcome: 'tp1', hitPrice: signal.tp1, hitTime: c.time };
+    }
+  }
+  return { outcome: 'pending', hitPrice: null, hitTime: null };
+}
+
+const OUTCOME_COLORS: Record<SignalOutcome, string> = {
+  pending: '#eab308', tp1: '#22c55e', tp2: '#10b981', tp3: '#059669', sl: '#ef4444',
+};
+const OUTCOME_LABELS: Record<SignalOutcome, string> = {
+  pending: '⏳ Đang chờ', tp1: '✅ TP1', tp2: '✅✅ TP2', tp3: '🏆 TP3', sl: '❌ SL',
+};
+
+// ============================================================
+// CONFIDENCE BADGE
 // ============================================================
 function ConfidenceBadge({ value }: { value: number }) {
   const color = value >= 80 ? '#22c55e' : value >= 65 ? '#eab308' : '#f97316';
@@ -39,13 +92,17 @@ function ConfidenceBadge({ value }: { value: number }) {
 }
 
 // ============================================================
-// SIGNAL CARD COMPONENT
+// SIGNAL CARD with Outcome tracking
 // ============================================================
-function SignalCard({ signal, isLatest }: { signal: EnhancedSignal; isLatest: boolean }) {
+function SignalCard({ signal, candles, isLatest }: { signal: EnhancedSignal; candles: Candle[]; isLatest: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const isBuy = signal.side === 'buy';
   const borderColor = isBuy ? '#22c55e' : '#ef4444';
   const bgColor = isBuy ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+
+  const { outcome, hitTime } = getSignalOutcome(signal, candles);
+  const outcomeColor = OUTCOME_COLORS[outcome];
+  const outcomeLabel = OUTCOME_LABELS[outcome];
 
   return (
     <div
@@ -55,23 +112,28 @@ function SignalCard({ signal, isLatest }: { signal: EnhancedSignal; isLatest: bo
         borderLeft: `4px solid ${borderColor}`,
         background: bgColor,
         borderRadius: 8,
-        padding: '12px 16px',
+        padding: '10px 14px',
         marginBottom: 8,
         cursor: 'pointer',
-        animation: isLatest ? 'pulse 2s infinite' : undefined,
+        opacity: outcome === 'sl' ? 0.7 : 1,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <span style={{ color: borderColor, fontWeight: 700, fontSize: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ color: borderColor, fontWeight: 700, fontSize: 14 }}>
             {isBuy ? '🟢 BUY' : '🔴 SELL'}
           </span>
-          <span style={{ color: '#94a3b8', marginLeft: 8, fontSize: 12 }}>{signal.source}</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>{signal.source}</span>
         </div>
-        <ConfidenceBadge value={signal.confidence} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ background: outcomeColor, color: '#000', padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700 }}>
+            {outcomeLabel}
+          </span>
+          <ConfidenceBadge value={signal.confidence} />
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginTop: 8, fontSize: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginTop: 8, fontSize: 11 }}>
         <div><span style={{ color: '#64748b' }}>Entry</span><br /><b style={{ color: '#e2e8f0' }}>{fmtPrice(signal.entry)}</b></div>
         <div><span style={{ color: '#64748b' }}>SL</span><br /><b style={{ color: '#ef4444' }}>{fmtPrice(signal.sl)}</b></div>
         <div><span style={{ color: '#64748b' }}>TP1</span><br /><b style={{ color: '#22c55e' }}>{fmtPrice(signal.tp1)}</b></div>
@@ -79,23 +141,21 @@ function SignalCard({ signal, isLatest }: { signal: EnhancedSignal; isLatest: bo
       </div>
 
       {expanded && (
-        <div style={{ marginTop: 12, borderTop: '1px solid #1e293b', paddingTop: 10 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12, marginBottom: 8 }}>
+        <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 11, marginBottom: 6 }}>
             <div><span style={{ color: '#64748b' }}>TP2:</span> <b style={{ color: '#22c55e' }}>{fmtPrice(signal.tp2)}</b></div>
             <div><span style={{ color: '#64748b' }}>TP3:</span> <b style={{ color: '#22c55e' }}>{fmtPrice(signal.tp3)}</b></div>
             <div><span style={{ color: '#64748b' }}>Rủi ro:</span> <b style={{ color: signal.riskLevel === 'Low' ? '#22c55e' : signal.riskLevel === 'High' ? '#ef4444' : '#eab308' }}>{signal.riskLevel}</b></div>
-            <div><span style={{ color: '#64748b' }}>Thời gian:</span> <span style={{ color: '#cbd5e1' }}>{fmtTime(signal.time)}</span></div>
           </div>
-          <div style={{ fontSize: 11, color: '#94a3b8' }}>
-            <b style={{ color: '#cbd5e1' }}>Hợp lưu:</b>
+          {hitTime && (
+            <div style={{ fontSize: 10, color: outcomeColor, marginBottom: 4 }}>
+              ⏱️ Kết quả lúc: {fmtTime(hitTime)}
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: '#94a3b8' }}>
             {signal.confluences.map((c, idx) => (
-              <div key={idx} style={{ marginLeft: 8, marginTop: 2 }}>
-                {c.passed ? '✅' : '❌'} {c.name}: {c.detail}
-              </div>
+              <div key={idx}>{c.passed ? '✅' : '❌'} {c.name}: {c.detail}</div>
             ))}
-          </div>
-          <div style={{ marginTop: 8, padding: 8, background: '#0f172a', borderRadius: 6, fontSize: 11, color: '#94a3b8', whiteSpace: 'pre-wrap' }}>
-            {signal.reason}
           </div>
         </div>
       )}
@@ -104,11 +164,10 @@ function SignalCard({ signal, isLatest }: { signal: EnhancedSignal; isLatest: bo
 }
 
 // ============================================================
-// STATUS PANEL COMPONENT
+// STATUS PANEL
 // ============================================================
 function StatusPanel({ result, currentPrice }: { result: CraziiResult | null; currentPrice: number }) {
   if (!result) return null;
-
   const lastIdx = result.ops.length - 1;
   const op = result.ops[lastIdx]?.op;
   const mlp = result.mlps[lastIdx]?.mlp;
@@ -116,50 +175,23 @@ function StatusPanel({ result, currentPrice }: { result: CraziiResult | null; cu
   const ksi = result.ksi[lastIdx];
   const kcx = result.kcx[lastIdx];
   const lastHA = result.haCandles[lastIdx];
-
   const opRule = op ? (currentPrice > op ? 'BUY' : 'SELL') : '—';
-  const mlpRule = mlp ? (currentPrice > mlp ? 'BUY' : 'SELL') : '—';
 
   return (
-    <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-      <h4 style={{ color: '#fbbf24', margin: '0 0 8px', fontSize: 13 }}>📊 Trạng Thái Hệ Thống</h4>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, fontSize: 11 }}>
-        <div>
-          <span style={{ color: '#64748b' }}>Giá hiện tại</span><br />
-          <b style={{ color: '#e2e8f0' }}>{fmtPrice(currentPrice)}</b>
-        </div>
-        <div>
-          <span style={{ color: '#64748b' }}>OP (5h)</span><br />
-          <b style={{ color: opRule === 'BUY' ? '#22c55e' : '#ef4444' }}>{op ? fmtPrice(op) : '—'}</b>
-        </div>
-        <div>
-          <span style={{ color: '#64748b' }}>MLP</span><br />
-          <b style={{ color: mlpRule === 'BUY' ? '#22c55e' : '#ef4444' }}>{mlp ? fmtPrice(mlp) : '—'}</b>
-        </div>
-        <div>
-          <span style={{ color: '#64748b' }}>Luật OP</span><br />
-          <b style={{ color: opRule === 'BUY' ? '#22c55e' : '#ef4444' }}>{opRule}</b>
-        </div>
-        <div>
-          <span style={{ color: '#64748b' }}>Nến HA</span><br />
-          <b style={{ color: lastHA?.isBull ? '#fbbf24' : '#ef4444' }}>{lastHA?.isBull ? '🟡 Vàng' : '🔴 Đỏ'}</b>
-        </div>
-        <div>
-          <span style={{ color: '#64748b' }}>KSI</span><br />
-          <b style={{ color: ksi?.isBullish ? '#22c55e' : '#ef4444' }}>{ksi?.isBullish ? '🐋 Mua' : '🐋 Bán'}</b>
-        </div>
-        <div>
-          <span style={{ color: '#64748b' }}>KCX</span><br />
-          <b style={{ color: kcx?.state === 'retailBuy' ? '#1e293b' : kcx?.state === 'retailSell' ? '#3b82f6' : '#22c55e' }}>
-            {kcx?.state === 'retailBuy' ? '⬛ Đen' : kcx?.state === 'retailSell' ? '🔵 Xanh dương' : '💚 Xanh lá'}
-          </b>
-        </div>
-        {ktr && (
-          <>
-            <div><span style={{ color: '#64748b' }}>KTR+1</span><br /><b style={{ color: '#22c55e' }}>{fmtPrice(ktr.plus1)}</b></div>
-            <div><span style={{ color: '#64748b' }}>KTR-1</span><br /><b style={{ color: '#ef4444' }}>{fmtPrice(ktr.minus1)}</b></div>
-          </>
-        )}
+    <div style={{ background: '#0f172a', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+      <h4 style={{ color: '#fbbf24', margin: '0 0 6px', fontSize: 12 }}>📊 Trạng Thái Hệ Thống</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 10 }}>
+        <div><span style={{ color: '#64748b' }}>Giá</span><br /><b style={{ color: '#e2e8f0' }}>{fmtPrice(currentPrice)}</b></div>
+        <div><span style={{ color: '#64748b' }}>OP</span><br /><b style={{ color: opRule === 'BUY' ? '#22c55e' : '#ef4444' }}>{op ? fmtPrice(op) : '—'}</b></div>
+        <div><span style={{ color: '#64748b' }}>MLP</span><br /><b style={{ color: mlp && currentPrice > mlp ? '#22c55e' : '#ef4444' }}>{mlp ? fmtPrice(mlp) : '—'}</b></div>
+        <div><span style={{ color: '#64748b' }}>Luật OP</span><br /><b style={{ color: opRule === 'BUY' ? '#22c55e' : '#ef4444' }}>{opRule}</b></div>
+        <div><span style={{ color: '#64748b' }}>Nến</span><br /><b style={{ color: lastHA?.isBull ? '#fbbf24' : '#ef4444' }}>{lastHA?.isBull ? '🟡 Vàng' : '🔴 Đỏ'}</b></div>
+        <div><span style={{ color: '#64748b' }}>KSI</span><br /><b style={{ color: ksi?.isBullish ? '#22c55e' : '#ef4444' }}>{ksi?.isBullish ? '🐋 Mua' : '🐋 Bán'}</b></div>
+        <div><span style={{ color: '#64748b' }}>KCX</span><br /><b style={{ color: kcx?.state === 'retailSell' ? '#3b82f6' : kcx?.state === 'exhaustion' ? '#22c55e' : '#94a3b8' }}>
+          {kcx?.state === 'retailBuy' ? '⬛' : kcx?.state === 'retailSell' ? '🔵' : '💚'}
+        </b></div>
+        {ktr && <div><span style={{ color: '#64748b' }}>KTR+1</span><br /><b style={{ color: '#22c55e' }}>{fmtPrice(ktr.plus1)}</b></div>}
+        {ktr && <div><span style={{ color: '#64748b' }}>KTR-1</span><br /><b style={{ color: '#ef4444' }}>{fmtPrice(ktr.minus1)}</b></div>}
       </div>
     </div>
   );
@@ -174,10 +206,7 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
 
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
-    if (chartRef.current) {
-      try { chartRef.current.remove(); } catch { /* ok */ }
-      chartRef.current = null;
-    }
+    if (chartRef.current) { try { chartRef.current.remove(); } catch {} chartRef.current = null; }
 
     const container = containerRef.current;
     const chart = createChart(container, {
@@ -189,10 +218,8 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
       timeScale: { timeVisible: true, secondsVisible: false },
     });
     chartRef.current = chart;
-
     const toT = (t: number): Time => (t + GMT7_OFFSET) as unknown as Time;
 
-    // Candlestick series
     const cs = chart.addCandlestickSeries({
       upColor: '#22c55e', downColor: '#ef4444',
       borderUpColor: '#22c55e', borderDownColor: '#ef4444',
@@ -207,34 +234,13 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
     vol.setData(candles.map(c => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e30' : '#ef444430' })));
 
     if (result) {
-      // EMA 200 line
-      const ema200Data = candles.map((c, i) => {
-        const closes = candles.slice(0, i + 1).map(x => x.close);
-        if (closes.length < 200) return null;
-        const k = 2 / 201;
-        let emaVal = closes.slice(0, 200).reduce((a, b) => a + b, 0) / 200;
-        for (let j = 200; j < closes.length; j++) {
-          emaVal = closes[j] * k + emaVal * (1 - k);
-        }
-        return { time: toT(c.time), value: emaVal };
-      }).filter(Boolean) as { time: Time; value: number }[];
-
-      if (ema200Data.length > 0) {
-        const emaLine = chart.addLineSeries({ color: '#ff9800', lineWidth: 2, title: 'EMA200' });
-        emaLine.setData(ema200Data);
-      }
-
-      // OP line (price line on candlestick)
+      // OP line
       const lastOP = result.ops[result.ops.length - 1]?.op;
-      if (lastOP) {
-        cs.createPriceLine({ price: lastOP, color: '#fbbf24', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'OP' });
-      }
+      if (lastOP) cs.createPriceLine({ price: lastOP, color: '#fbbf24', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'OP' });
 
       // MLP line
       const lastMLP = result.mlps[result.mlps.length - 1]?.mlp;
-      if (lastMLP) {
-        cs.createPriceLine({ price: lastMLP, color: '#a855f7', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MLP' });
-      }
+      if (lastMLP) cs.createPriceLine({ price: lastMLP, color: '#a855f7', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MLP' });
 
       // KTR levels
       const lastKTR = result.ktrs[result.ktrs.length - 1]?.levels;
@@ -245,11 +251,9 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
         cs.createPriceLine({ price: lastKTR.minus2, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR-2' });
       }
 
-      // Markers for signals
+      // Signal markers
       const markers: SeriesMarker<Time>[] = [];
-
-      // Enhanced signals (main calls)
-      for (const sig of result.enhancedSignals.slice(-15)) {
+      for (const sig of result.enhancedSignals.slice(-20)) {
         markers.push({
           time: toT(sig.time),
           position: sig.side === 'buy' ? 'belowBar' : 'aboveBar',
@@ -258,27 +262,22 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
           text: `${sig.side.toUpperCase()} ${sig.confidence}%`,
         });
       }
-
-      // Diamond signals
       for (const d of result.diamonds.slice(-10)) {
         markers.push({
           time: toT(d.time),
           position: 'belowBar',
-          color: d.type === 'blue' ? '#00bcd4' : d.type === 'broken' ? '#ff9800' : '#e91e63',
+          color: d.type === 'blue' ? '#00bcd4' : '#ff9800',
           shape: 'circle',
-          text: `◆ ${d.type}`,
+          text: `◆`,
         });
       }
-
       if (markers.length > 0) {
         markers.sort((a, b) => (a.time as number) - (b.time as number));
         cs.setMarkers(markers);
       }
     }
 
-    const handleResize = () => {
-      if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || 500 });
-    };
+    const handleResize = () => { if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || 500 }); };
     window.addEventListener('resize', handleResize);
     return () => { window.removeEventListener('resize', handleResize); try { chart.remove(); } catch {} chartRef.current = null; };
   }, [candles, result]);
@@ -287,12 +286,9 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
 }
 
 // ============================================================
-// MAIN CRAZII PAGE COMPONENT
+// MAIN PAGE
 // ============================================================
-interface CraziiPageProps {
-  onBack: () => void;
-  onLogout?: () => void;
-}
+interface CraziiPageProps { onBack: () => void; onLogout?: () => void; }
 
 export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -302,39 +298,23 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [lastUpdate, setLastUpdate] = useState('');
   const [minConfidence, setMinConfidence] = useState(55);
-  const wsRef = useRef<WebSocket | null>(null);
+  const pollingRef = useRef<{ stop: () => void } | null>(null);
 
-  // OANDA Gold symbol on Binance Futures
-  const SYMBOL = 'XAUUSDT';
-
-  // Load data
   const loadData = useCallback(async () => {
-    setLoading(true);
     try {
       const [candleData, dailyData] = await Promise.all([
-        fetchCandles(SYMBOL, timeframe, 1000),
-        fetchDailyCandles(SYMBOL, 10),
+        fetchOandaGoldCandles(timeframe, 1000),
+        fetchOandaGoldDaily(10),
       ]);
-
       if (candleData.length > 0) {
         setCandles(candleData);
         setCurrentPrice(candleData[candleData.length - 1].close);
-
-        // Calculate Pivot from daily candles
         const pivot = calculatePivot(dailyData);
-        // Calculate ADR for KTR
         const adr = calculateADR(dailyData, 5);
-
-        // Run CRAZII engine
         const craziiResult = calculateAll(candleData, {
-          opHour: 5,
-          ktrMultiplier: 1.0,
-          haSmooth: 6,
-          dailyRange: adr,
-          pivot,
-          minConfidence,
+          opHour: 5, ktrMultiplier: 1.0, haSmooth: 6,
+          dailyRange: adr, pivot, minConfidence,
         });
-
         setResult(craziiResult);
         setLastUpdate(new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
       }
@@ -344,191 +324,163 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
     setLoading(false);
   }, [timeframe, minConfidence]);
 
+  // Initial load
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Polling real-time: refresh mỗi 10s (OANDA không có WS công khai)
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (pollingRef.current) pollingRef.current.stop();
 
-  // WebSocket real-time
+    const polling = startOandaGoldPolling(timeframe, (latestCandles) => {
+      if (latestCandles.length > 0) {
+        const latest = latestCandles[latestCandles.length - 1];
+        setCurrentPrice(latest.close);
+        // Merge latest candles vào state
+        setCandles(prev => {
+          if (prev.length === 0) return prev;
+          const copy = [...prev];
+          for (const lc of latestCandles) {
+            const idx = copy.findIndex(c => c.time === lc.time);
+            if (idx >= 0) {
+              copy[idx] = lc;
+            } else if (lc.time > copy[copy.length - 1].time) {
+              copy.push(lc);
+            }
+          }
+          return copy;
+        });
+        setLastUpdate(new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
+      }
+    }, 10000);
+
+    pollingRef.current = polling;
+    return () => { polling.stop(); };
+  }, [timeframe]);
+
+  // Re-calculate engine mỗi 30s
   useEffect(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    const ws = connectWebSocket(SYMBOL, timeframe, (liveCandle: LiveCandle) => {
-      setCurrentPrice(liveCandle.close);
-      setCandles(prev => {
-        if (prev.length === 0) return prev;
-        const copy = [...prev];
-        const lastIdx = copy.length - 1;
-
-        if (copy[lastIdx].time === liveCandle.time) {
-          copy[lastIdx] = { ...liveCandle };
-        } else if (liveCandle.isClosed) {
-          copy.push({ time: liveCandle.time, open: liveCandle.open, high: liveCandle.high, low: liveCandle.low, close: liveCandle.close, volume: liveCandle.volume });
-          // Recalculate on new candle close
-          loadData();
-        }
-        return copy;
-      });
-      setLastUpdate(new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
-    });
-
-    wsRef.current = ws;
-    return () => { ws.close(); };
-  }, [timeframe, loadData]);
-
-  // Polling fallback: nếu WS không hoạt động, refresh mỗi 30s
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadData();
-    }, 30000);
+    const interval = setInterval(() => { loadData(); }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
-  // Active signals (filtered by confidence)
+  // Signals with outcomes
   const activeSignals = result?.enhancedSignals?.filter(s => s.confidence >= minConfidence) || [];
   const latestSignal = activeSignals.length > 0 ? activeSignals[activeSignals.length - 1] : null;
 
-  // FVG/OB counts
+  // Stats
   const activeFVGs = result?.fvgs?.filter(f => !f.filled).length || 0;
   const activeOBs = result?.orderBlocks?.filter(ob => !ob.mitigated).length || 0;
+
+  // Win rate calculation
+  const outcomes = activeSignals.map(s => getSignalOutcome(s, candles));
+  const closedSignals = outcomes.filter(o => o.outcome !== 'pending');
+  const wins = closedSignals.filter(o => o.outcome.startsWith('tp'));
+  const winRate = closedSignals.length > 0 ? Math.round((wins.length / closedSignals.length) * 100) : 0;
 
   return (
     <div style={{ minHeight: '100vh', background: '#060d1a', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* HEADER */}
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #1e293b', background: '#0a0e17' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 14 }}>← Key Level</button>
-          <h1 style={{ margin: 0, fontSize: 18, color: '#fbbf24', fontWeight: 800 }}>🏆 CRAZII SYSTEM</h1>
-          <span style={{ fontSize: 12, color: '#64748b' }}>XAU/USD (Vàng OANDA)</span>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #1e293b', background: '#0a0e17' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 13 }}>← Key Level</button>
+          <h1 style={{ margin: 0, fontSize: 16, color: '#fbbf24', fontWeight: 800 }}>🏆 CRAZII SYSTEM</h1>
+          <span style={{ fontSize: 11, color: '#64748b' }}>OANDA:XAUUSD (Vàng/USD)</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 12, color: '#64748b' }}>Cập nhật: {lastUpdate}</span>
-          {onLogout && <button onClick={onLogout} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Đăng xuất</button>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, color: '#64748b' }}>⏱️ {lastUpdate}</span>
+          {closedSignals.length > 0 && (
+            <span style={{ fontSize: 11, color: winRate >= 60 ? '#22c55e' : '#eab308' }}>
+              WR: {winRate}% ({wins.length}/{closedSignals.length})
+            </span>
+          )}
+          {onLogout && <button onClick={onLogout} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Logout</button>}
         </div>
       </header>
 
       {/* TOOLBAR */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: '1px solid #1e293b', flexWrap: 'wrap' }}>
-        <span style={{ color: '#64748b', fontSize: 12 }}>Khung:</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderBottom: '1px solid #1e293b', flexWrap: 'wrap' }}>
         {['1m', '5m', '15m', '1h', '4h'].map(tf => (
-          <button
-            key={tf}
-            onClick={() => setTimeframe(tf)}
-            style={{
-              background: timeframe === tf ? '#fbbf24' : '#1e293b',
-              color: timeframe === tf ? '#000' : '#94a3b8',
-              border: 'none', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-            }}
+          <button key={tf} onClick={() => setTimeframe(tf)}
+            style={{ background: timeframe === tf ? '#fbbf24' : '#1e293b', color: timeframe === tf ? '#000' : '#94a3b8', border: 'none', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
           >{tf.toUpperCase()}</button>
         ))}
-        <span style={{ color: '#64748b', fontSize: 12, marginLeft: 12 }}>Min Confidence:</span>
-        <input
-          type="range" min={30} max={90} value={minConfidence}
-          onChange={e => setMinConfidence(Number(e.target.value))}
-          style={{ width: 80 }}
-        />
-        <span style={{ color: '#fbbf24', fontSize: 12, fontWeight: 700 }}>{minConfidence}%</span>
-
-        <button onClick={loadData} style={{ marginLeft: 'auto', background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
-          🔄 Refresh
-        </button>
-
-        {/* Quick Stats */}
-        <div style={{ display: 'flex', gap: 12, marginLeft: 12 }}>
-          <span style={{ fontSize: 11, color: '#22c55e' }}>FVG: {activeFVGs}</span>
-          <span style={{ fontSize: 11, color: '#3b82f6' }}>OB: {activeOBs}</span>
-          <span style={{ fontSize: 11, color: '#fbbf24' }}>Signals: {activeSignals.length}</span>
-        </div>
+        <span style={{ color: '#64748b', fontSize: 11, marginLeft: 8 }}>Conf:</span>
+        <input type="range" min={30} max={90} value={minConfidence} onChange={e => setMinConfidence(Number(e.target.value))} style={{ width: 60 }} />
+        <span style={{ color: '#fbbf24', fontSize: 11 }}>{minConfidence}%</span>
+        <button onClick={loadData} style={{ marginLeft: 'auto', background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '3px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>🔄 Refresh</button>
+        <span style={{ fontSize: 10, color: '#22c55e' }}>FVG:{activeFVGs}</span>
+        <span style={{ fontSize: 10, color: '#3b82f6' }}>OB:{activeOBs}</span>
+        <span style={{ fontSize: 10, color: '#fbbf24' }}>Sig:{activeSignals.length}</span>
       </div>
 
       {loading && candles.length === 0 ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fbbf24' }}>
-          ⏳ Đang tải dữ liệu CRAZII...
-        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fbbf24' }}>⏳ Đang tải...</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', height: 'calc(100vh - 110px)' }}>
-          {/* LEFT: CHART */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', height: 'calc(100vh - 95px)' }}>
+          {/* CHART */}
           <div style={{ borderRight: '1px solid #1e293b', overflow: 'hidden' }}>
             <CraziiChart candles={candles} result={result} />
           </div>
 
-          {/* RIGHT: PANEL */}
-          <div style={{ overflow: 'auto', padding: 12 }}>
-            {/* Current Price */}
-            <div style={{ textAlign: 'center', marginBottom: 12 }}>
-              <span style={{ fontSize: 28, fontWeight: 800, color: currentPrice > (result?.ops[result.ops.length - 1]?.op || 0) ? '#22c55e' : '#ef4444' }}>
+          {/* RIGHT PANEL */}
+          <div style={{ overflow: 'auto', padding: 10 }}>
+            {/* Price */}
+            <div style={{ textAlign: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 24, fontWeight: 800, color: currentPrice > (result?.ops[result.ops.length - 1]?.op || 0) ? '#22c55e' : '#ef4444' }}>
                 {fmtPrice(currentPrice)}
               </span>
-              <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>XAU/USD</span>
+              <span style={{ fontSize: 11, color: '#64748b', marginLeft: 6 }}>OANDA:XAUUSD</span>
             </div>
 
-            {/* Status Panel */}
             <StatusPanel result={result} currentPrice={currentPrice} />
 
-            {/* Latest Signal Highlight */}
+            {/* Latest Signal */}
             {latestSignal && (
-              <div style={{ marginBottom: 12, padding: 10, background: latestSignal.side === 'buy' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', borderRadius: 8, border: `2px solid ${latestSignal.side === 'buy' ? '#22c55e' : '#ef4444'}` }}>
-                <div style={{ textAlign: 'center', marginBottom: 4 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: latestSignal.side === 'buy' ? '#22c55e' : '#ef4444' }}>
-                    🔥 TÍN HIỆU MỚI NHẤT: {latestSignal.side.toUpperCase()}
-                  </span>
+              <div style={{ marginBottom: 10, padding: 8, background: latestSignal.side === 'buy' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', borderRadius: 6, border: `2px solid ${latestSignal.side === 'buy' ? '#22c55e' : '#ef4444'}` }}>
+                <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 800, color: latestSignal.side === 'buy' ? '#22c55e' : '#ef4444', marginBottom: 4 }}>
+                  🔥 {latestSignal.side.toUpperCase()} — {latestSignal.source}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 11, textAlign: 'center' }}>
-                  <div><span style={{ color: '#64748b' }}>Entry</span><br /><b>{fmtPrice(latestSignal.entry)}</b></div>
-                  <div><span style={{ color: '#64748b' }}>SL</span><br /><b style={{ color: '#ef4444' }}>{fmtPrice(latestSignal.sl)}</b></div>
-                  <div><span style={{ color: '#64748b' }}>TP1</span><br /><b style={{ color: '#22c55e' }}>{fmtPrice(latestSignal.tp1)}</b></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 10, textAlign: 'center' }}>
+                  <div>Entry<br /><b>{fmtPrice(latestSignal.entry)}</b></div>
+                  <div>SL<br /><b style={{ color: '#ef4444' }}>{fmtPrice(latestSignal.sl)}</b></div>
+                  <div>TP1<br /><b style={{ color: '#22c55e' }}>{fmtPrice(latestSignal.tp1)}</b></div>
                 </div>
               </div>
             )}
 
-            {/* All Signals */}
-            <h4 style={{ color: '#cbd5e1', margin: '0 0 8px', fontSize: 13 }}>
-              📋 Tín Hiệu ({activeSignals.length})
-            </h4>
+            {/* Signals list */}
+            <h4 style={{ color: '#cbd5e1', margin: '0 0 6px', fontSize: 12 }}>📋 Tín Hiệu ({activeSignals.length})</h4>
             {activeSignals.length === 0 ? (
-              <div style={{ color: '#64748b', fontSize: 12, textAlign: 'center', padding: 20 }}>
-                Chưa có tín hiệu đạt ngưỡng {minConfidence}%
-              </div>
+              <div style={{ color: '#64748b', fontSize: 11, textAlign: 'center', padding: 16 }}>Chưa có tín hiệu đạt {minConfidence}%</div>
             ) : (
-              <div>
-                {activeSignals.slice().reverse().slice(0, 10).map((sig, idx) => (
-                  <SignalCard key={sig.time + sig.side} signal={sig} isLatest={idx === 0} />
-                ))}
-              </div>
+              activeSignals.slice().reverse().slice(0, 12).map((sig, idx) => (
+                <SignalCard key={sig.time + sig.side} signal={sig} candles={candles} isLatest={idx === 0} />
+              ))
             )}
 
-            {/* FVG & OB Info */}
-            {result && (result.fvgs.length > 0 || result.orderBlocks.length > 0) && (
-              <div style={{ marginTop: 12, background: '#0f172a', borderRadius: 8, padding: 10 }}>
-                <h4 style={{ color: '#3b82f6', margin: '0 0 6px', fontSize: 12 }}>🔲 FVG & Order Block</h4>
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                  {result.fvgs.filter(f => !f.filled).slice(-5).map((fvg, i) => (
-                    <div key={i} style={{ marginBottom: 2 }}>
-                      {fvg.type === 'bullish' ? '🟢' : '🔴'} FVG {fvg.type}: {fmtPrice(fvg.bottom)} - {fmtPrice(fvg.top)}
-                    </div>
+            {/* FVG/OB */}
+            {result && (activeFVGs > 0 || activeOBs > 0) && (
+              <div style={{ marginTop: 10, background: '#0f172a', borderRadius: 6, padding: 8 }}>
+                <h4 style={{ color: '#3b82f6', margin: '0 0 4px', fontSize: 11 }}>🔲 FVG & OB Active</h4>
+                <div style={{ fontSize: 10, color: '#94a3b8' }}>
+                  {result.fvgs.filter(f => !f.filled).slice(-4).map((fvg, i) => (
+                    <div key={i}>{fvg.type === 'bullish' ? '🟢' : '🔴'} FVG: {fmtPrice(fvg.bottom)}-{fmtPrice(fvg.top)}</div>
                   ))}
-                  {result.orderBlocks.filter(ob => !ob.mitigated).slice(-5).map((ob, i) => (
-                    <div key={i} style={{ marginBottom: 2 }}>
-                      {ob.type === 'bullish' ? '🟩' : '🟥'} OB {ob.type}: {fmtPrice(ob.bottom)} - {fmtPrice(ob.top)}
-                    </div>
+                  {result.orderBlocks.filter(ob => !ob.mitigated).slice(-4).map((ob, i) => (
+                    <div key={i}>{ob.type === 'bullish' ? '🟩' : '🟥'} OB: {fmtPrice(ob.bottom)}-{fmtPrice(ob.top)}</div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Legend / Rules */}
-            <div style={{ marginTop: 12, background: '#0f172a', borderRadius: 8, padding: 10 }}>
-              <h4 style={{ color: '#fbbf24', margin: '0 0 6px', fontSize: 12 }}>📖 Quy Tắc CRAZII</h4>
-              <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1.6 }}>
-                • <b style={{ color: '#fbbf24' }}>Luật OP</b>: Trên OP → BUY | Dưới OP → SELL<br />
-                • <b style={{ color: '#a855f7' }}>MLP</b>: OP trên MLP = uptrend mạnh<br />
-                • <b style={{ color: '#22c55e' }}>Tam Điểm</b>: 3 nến + OP + KSI + KCX cùng hướng<br />
-                • <b style={{ color: '#3b82f6' }}>Nhấn Chìm</b>: Nến đổi màu engulfing + OP rule<br />
-                • <b style={{ color: '#00bcd4' }}>Kim Cương</b>: Tín hiệu đảo chiều / biến động<br />
-                • <b style={{ color: '#ff9800' }}>KTR</b>: Chốt lời theo mốc +-1,2,3<br />
-                • <b style={{ color: '#e91e63' }}>FVG/OB</b>: Hợp lưu ICT nâng confidence
+            {/* Rules */}
+            <div style={{ marginTop: 10, background: '#0f172a', borderRadius: 6, padding: 8 }}>
+              <h4 style={{ color: '#fbbf24', margin: '0 0 4px', fontSize: 11 }}>📖 Quy Tắc</h4>
+              <div style={{ fontSize: 9, color: '#64748b', lineHeight: 1.5 }}>
+                • <b style={{ color: '#fbbf24' }}>OP</b>: Trên→BUY | Dưới→SELL<br/>
+                • <b style={{ color: '#22c55e' }}>Tam Điểm</b>: 3 nến+OP+KSI+KCX<br/>
+                • <b style={{ color: '#3b82f6' }}>Nhấn Chìm</b>: Engulfing+OP<br/>
+                • <b style={{ color: '#ff9800' }}>KTR</b>: TP1 70% | TP2 20% | TP3 10%
               </div>
             </div>
           </div>
