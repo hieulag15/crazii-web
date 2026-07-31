@@ -27,6 +27,9 @@ grp_sig = "═══ CRAZII: Signals ═══"
 i_showTamDiem = input.bool(true, "Show Tam Diem (BIG BUY/SELL)", group=grp_sig)
 i_showEngulf  = input.bool(true, "Show CCRY/CCYR (Engulfing)", group=grp_sig)
 i_showDiamond = input.bool(true, "Show Diamond", group=grp_sig)
+i_strictSignals = input.bool(true, "Strict mode (lọc nhiễu)", group=grp_sig)
+i_minBarsBetweenSignals = input.int(6, "Khoảng cách tối thiểu giữa 2 tín hiệu cùng chiều", minval=1, maxval=30, group=grp_sig)
+i_requireMLP = input.bool(true, "Yêu cầu đúng phía MLP", group=grp_sig)
 
 grp_smc = "═══ SMC: Cấu Trúc & Khối Lệnh ═══"
 lookbackInput  = input.int(2000, "Chu kỳ quét quá khứ", minval=100, maxval=5000, group=grp_smc)
@@ -131,28 +134,65 @@ barcolor(i_showHA ? haColor : na, title="HA Color")
 // ══════════════════════════════════════════════════════════════
 // 5. CRAZII: SIGNALS (Tam Điểm + CCRY/CCYR + Diamond)
 // ══════════════════════════════════════════════════════════════
+var int lastBuySignalBar = na
+var int lastSellSignalBar = na
+canBuySignal  = barstate.isconfirmed and (na(lastBuySignalBar) or (bar_index - lastBuySignalBar >= i_minBarsBetweenSignals))
+canSellSignal = barstate.isconfirmed and (na(lastSellSignalBar) or (bar_index - lastSellSignalBar >= i_minBarsBetweenSignals))
+
+bodySize = math.abs(close - open)
+avgBody  = ta.sma(math.abs(close - open), 10)
+strongBody = na(avgBody) ? true : bodySize >= avgBody * 0.8
+mlpBuyPass = not i_requireMLP or (not na(mlpValue) and close > mlpValue)
+mlpSellPass = not i_requireMLP or (not na(mlpValue) and close < mlpValue)
+
 // Tam Diem BUY: 3 nến vàng tăng dần + giá > OP
-tamBuy = haBull and haBull[1] and haBull[2] and
-         haClose_s > haClose_s[1] and haClose_s[1] > haClose_s[2] and
-         not na(currentOP) and close > currentOP
+tamBuyBase = haBull and haBull[1] and haBull[2] and
+             haClose_s > haClose_s[1] and haClose_s[1] > haClose_s[2] and
+             not na(currentOP) and close > currentOP
+tamBuy = i_strictSignals ? (tamBuyBase and strongBody and mlpBuyPass) : tamBuyBase
 
 // Tam Diem SELL: 3 nến đỏ giảm dần + giá < OP
-tamSell = not haBull and not haBull[1] and not haBull[2] and
-          haClose_s < haClose_s[1] and haClose_s[1] < haClose_s[2] and
-          not na(currentOP) and close < currentOP
+tamSellBase = not haBull and not haBull[1] and not haBull[2] and
+              haClose_s < haClose_s[1] and haClose_s[1] < haClose_s[2] and
+              not na(currentOP) and close < currentOP
+tamSell = i_strictSignals ? (tamSellBase and strongBody and mlpSellPass) : tamSellBase
 
-plotshape(i_showTamDiem and tamBuy, "Tam Diem BUY", shape.triangleup, location.belowbar, color=#22c55e, size=size.small, text="BUY")
-plotshape(i_showTamDiem and tamSell, "Tam Diem SELL", shape.triangledown, location.abovebar, color=#ef4444, size=size.small, text="SELL")
+plotTamBuy = i_showTamDiem and tamBuy and canBuySignal
+plotTamSell = i_showTamDiem and tamSell and canSellSignal
+
+plotshape(plotTamBuy, "Tam Diem BUY", shape.triangleup, location.belowbar, color=#22c55e, size=size.small, text="BUY")
+plotshape(plotTamSell, "Tam Diem SELL", shape.triangledown, location.abovebar, color=#ef4444, size=size.small, text="SELL")
 
 // CCRY: Đỏ → Vàng + trên OP = BUY | CCYR: Vàng → Đỏ + dưới OP = SELL
-ccry = haBull and not haBull[1] and not na(currentOP) and close > currentOP
-ccyr = not haBull and haBull[1] and not na(currentOP) and close < currentOP
-plotshape(i_showEngulf and ccry, "CCRY", shape.labelup, location.belowbar, color=color.new(#3b82f6, 0), size=size.tiny, text="CCRY", textcolor=color.white)
-plotshape(i_showEngulf and ccyr, "CCYR", shape.labeldown, location.abovebar, color=color.new(#f97316, 0), size=size.tiny, text="CCYR", textcolor=color.white)
+ccryBase = haBull and not haBull[1] and not na(currentOP) and close > currentOP
+ccyrBase = not haBull and haBull[1] and not na(currentOP) and close < currentOP
+
+bullEngulfBody = close > open[1] and open <= close[1]
+bearEngulfBody = close < open[1] and open >= close[1]
+
+ccryStrict = ccryBase and not haBull[2] and bullEngulfBody and mlpBuyPass
+ccyrStrict = ccyrBase and haBull[2] and bearEngulfBody and mlpSellPass
+
+ccry = i_strictSignals ? ccryStrict : ccryBase
+ccyr = i_strictSignals ? ccyrStrict : ccyrBase
+
+plotCCRY = i_showEngulf and ccry and canBuySignal
+plotCCYR = i_showEngulf and ccyr and canSellSignal
+
+plotshape(plotCCRY, "CCRY", shape.labelup, location.belowbar, color=color.new(#3b82f6, 0), size=size.tiny, text="CCRY", textcolor=color.white)
+plotshape(plotCCYR, "CCYR", shape.labeldown, location.abovebar, color=color.new(#f97316, 0), size=size.tiny, text="CCYR", textcolor=color.white)
 
 // Blue Diamond: swing low + đảo chiều
-blueDiamond = low <= ta.lowest(low, 5) and close > open and haBull and not haBull[1]
-plotshape(i_showDiamond and blueDiamond, "Diamond", shape.diamond, location.belowbar, color=#00bcd4, size=size.small, text="◆")
+blueDiamondBase = low <= ta.lowest(low, 5) and close > open and haBull and not haBull[1]
+blueDiamond = i_strictSignals ? (blueDiamondBase and not na(currentOP) and close > currentOP and mlpBuyPass) : blueDiamondBase
+plotDiamond = i_showDiamond and blueDiamond and canBuySignal
+plotshape(plotDiamond, "Diamond", shape.diamond, location.belowbar, color=#00bcd4, size=size.small, text="◆")
+
+if barstate.isconfirmed
+    if plotTamBuy or plotCCRY or plotDiamond
+        lastBuySignalBar := bar_index
+    if plotTamSell or plotCCYR
+        lastSellSignalBar := bar_index
 
 // ══════════════════════════════════════════════════════════════
 // 6. SMC: EMA 200 & HVB
@@ -470,11 +510,11 @@ if showLiq and barstate.isconfirmed
 // ══════════════════════════════════════════════════════════════
 // 12. ALERTS
 // ══════════════════════════════════════════════════════════════
-alertcondition(tamBuy, "CRAZII: Tam Diem BUY", "🟢 Tam Diem BUY - Hội tụ đa tầng")
-alertcondition(tamSell, "CRAZII: Tam Diem SELL", "🔴 Tam Diem SELL - Hội tụ đa tầng")
-alertcondition(ccry, "CRAZII: CCRY BUY", "🔵 CCRY - Đổi màu BUY (trên OP)")
-alertcondition(ccyr, "CRAZII: CCYR SELL", "🟠 CCYR - Đổi màu SELL (dưới OP)")
-alertcondition(blueDiamond, "CRAZII: Blue Diamond", "💎 Blue Diamond - Swing Low")
+alertcondition(plotTamBuy, "CRAZII: Tam Diem BUY", "🟢 Tam Diem BUY - Hội tụ đa tầng")
+alertcondition(plotTamSell, "CRAZII: Tam Diem SELL", "🔴 Tam Diem SELL - Hội tụ đa tầng")
+alertcondition(plotCCRY, "CRAZII: CCRY BUY", "🔵 CCRY - Đổi màu BUY (trên OP)")
+alertcondition(plotCCYR, "CRAZII: CCYR SELL", "🟠 CCYR - Đổi màu SELL (dưới OP)")
+alertcondition(plotDiamond, "CRAZII: Blue Diamond", "💎 Blue Diamond - Swing Low")
 alertcondition(alertBuyTouch, "SMC: Chạm MUA OB", "🟩 Giá chạm vùng MUA Order Block")
 alertcondition(alertSellTouch, "SMC: Chạm BÁN OB", "🟥 Giá chạm vùng BÁN Order Block")
 
