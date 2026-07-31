@@ -1,90 +1,70 @@
 /**
- * CRAZII Data Service - Riêng biệt cho hệ thống CRAZII
- * Nguồn data chính: Twelve Data API (XAU/USD Forex Spot - giá khớp OANDA)
- * Fallback: Binance Futures XAUUSDT
+ * CRAZII Data Service - OANDA XAU/USD (FX Spot)
+ * Nguồn data: Twelve Data API (XAU/USD = giá chính xác OANDA)
+ * Real-time: Polling mỗi 8s (free tier: 8 req/phút)
  *
- * Twelve Data free tier: 800 req/ngày, 8 req/phút
- * Hỗ trợ: 1min, 5min, 15min, 30min, 1h, 4h, 1day
- * Symbol: XAU/USD (Gold Spot giống OANDA)
- *
- * Để sử dụng: Đăng ký free tại https://twelvedata.com
- * Lấy API key, đặt vào .env: VITE_TWELVEDATA_KEY=your_key
+ * Hoàn toàn tách biệt với dataService.ts (Key Level - Crypto)
  */
 
 import type { Candle } from '../types/index.js';
 
-// Twelve Data config
-const TWELVE_DATA_BASE = 'https://api.twelvedata.com';
-const TWELVE_DATA_KEY = (import.meta as any).env?.VITE_TWELVEDATA_KEY || '';
+const TD_BASE = 'https://api.twelvedata.com';
+const TD_KEY = (import.meta as any).env?.VITE_TWELVEDATA_KEY || '';
 
-// Binance fallback
-const BINANCE_FUTURES = 'https://fapi.binance.com/fapi/v1';
-const CORS_PROXY = 'https://corsproxy.io/?';
-
-// Interval mapping for Twelve Data
+// Twelve Data interval format
 const TD_INTERVALS: Record<string, string> = {
   '1m': '1min', '5m': '5min', '15m': '15min',
   '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1day',
 };
 
-async function fetchBinance(url: string): Promise<Response> {
-  try {
-    const res = await fetch(url);
-    if (res.ok) return res;
-  } catch { /* CORS */ }
-  return fetch(`${CORS_PROXY}${encodeURIComponent(url)}`);
-}
-
 /**
- * Lấy XAU/USD candles từ Twelve Data (giá FX Spot chính xác)
- * Fallback sang Binance XAUUSDT nếu không có API key hoặc lỗi
+ * Lấy XAU/USD (FX Spot) candles từ Twelve Data
  */
 export async function fetchOandaGoldCandles(
   interval = '5m',
   limit = 1000
 ): Promise<Candle[]> {
-  // Thử Twelve Data trước (nếu có API key)
-  if (TWELVE_DATA_KEY) {
-    try {
-      const tdInterval = TD_INTERVALS[interval] || '5min';
-      const url = `${TWELVE_DATA_BASE}/time_series?symbol=XAU/USD&interval=${tdInterval}&outputsize=${Math.min(limit, 800)}&apikey=${TWELVE_DATA_KEY}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'ok' && data.values && data.values.length > 0) {
-          // Twelve Data trả về mới nhất ở đầu, cần reverse
-          const candles: Candle[] = data.values.map((v: any) => ({
-            time: Math.floor(new Date(v.datetime).getTime() / 1000),
-            open: parseFloat(v.open),
-            high: parseFloat(v.high),
-            low: parseFloat(v.low),
-            close: parseFloat(v.close),
-            volume: parseFloat(v.volume || '0'),
-          })).reverse();
-          return candles;
-        }
-      }
-    } catch (e) {
-      console.warn('[CRAZII] Twelve Data failed, using Binance fallback:', e);
-    }
+  if (!TD_KEY) {
+    console.error('[CRAZII] Missing VITE_TWELVEDATA_KEY in .env');
+    return [];
   }
 
-  // Fallback: Binance XAUUSDT Futures
+  const tdInterval = TD_INTERVALS[interval] || '5min';
+  // Twelve Data max outputsize = 5000 (free tier thường giới hạn ~800)
+  const outputsize = Math.min(limit, 800);
+
   try {
-    const url = `${BINANCE_FUTURES}/klines?symbol=XAUUSDT&interval=${interval}&limit=${limit}`;
-    const response = await fetchBinance(url);
-    const data = await response.json();
-    if (!Array.isArray(data) || data.length === 0) return [];
-    return data.map((k: unknown[]) => ({
-      time: Math.floor((k[0] as number) / 1000),
-      open: parseFloat(k[1] as string),
-      high: parseFloat(k[2] as string),
-      low: parseFloat(k[3] as string),
-      close: parseFloat(k[4] as string),
-      volume: parseFloat(k[5] as string),
-    }));
+    const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${tdInterval}&outputsize=${outputsize}&apikey=${TD_KEY}`;
+    console.log('[CRAZII] Fetching from Twelve Data...');
+    const res = await fetch(url);
+    const json = await res.json();
+
+    // Twelve Data error response
+    if (json.code) {
+      console.error('[CRAZII] Twelve Data error:', json.code, json.message);
+      return [];
+    }
+
+    // Success: json.values = [{datetime, open, high, low, close, volume}, ...]
+    // Ordered newest first → reverse
+    if (json.values && json.values.length > 0) {
+      const candles: Candle[] = json.values.map((v: any) => ({
+        time: Math.floor(new Date(v.datetime + ' GMT').getTime() / 1000),
+        open: parseFloat(v.open),
+        high: parseFloat(v.high),
+        low: parseFloat(v.low),
+        close: parseFloat(v.close),
+        volume: v.volume ? parseFloat(v.volume) : 0,
+      })).reverse();
+
+      console.log(`[CRAZII] Loaded ${candles.length} candles (XAU/USD FX Spot)`);
+      return candles;
+    }
+
+    console.warn('[CRAZII] No data from Twelve Data:', json);
+    return [];
   } catch (e) {
-    console.error('[CRAZII] All sources failed:', e);
+    console.error('[CRAZII] Fetch error:', e);
     return [];
   }
 }
@@ -97,9 +77,8 @@ export async function fetchOandaGoldDaily(limit = 10): Promise<Candle[]> {
 }
 
 /**
- * WebSocket real-time cho XAU/USD
- * Thử nhiều endpoint: Binance Futures WS → Spot WS
- * Nếu cả 2 đều bị block → dùng REST polling 5s
+ * Live polling: lấy 2 nến mới nhất mỗi 8s
+ * Free tier Twelve Data: 8 req/phút = 1 req mỗi 7.5s
  */
 export interface LiveGoldCandle extends Candle {
   isClosed: boolean;
@@ -109,122 +88,42 @@ export function connectGoldWebSocket(
   interval: string,
   onUpdate: (candle: LiveGoldCandle) => void
 ): { close: () => void } {
-  const stream = `xauusdt@kline_${interval}`;
-  let isClosed = false;
-  let ws: WebSocket | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-  let hasReceivedData = false;
+  let active = true;
 
-  // WS endpoints to try (order of priority)
-  const WS_ENDPOINTS = [
-    'wss://fstream.binance.com/ws',   // Futures (chính xác nhất cho XAUUSDT)
-    'wss://stream.binance.com:9443/ws', // Spot (fallback, ổn định hơn)
-  ];
-  let endpointIdx = 0;
+  const poll = async () => {
+    if (!active || !TD_KEY) return;
+    try {
+      const tdInterval = TD_INTERVALS[interval] || '5min';
+      const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${tdInterval}&outputsize=2&apikey=${TD_KEY}`;
+      const res = await fetch(url);
+      const json = await res.json();
 
-  function connect() {
-    if (isClosed) return;
-    const url = WS_ENDPOINTS[endpointIdx];
-    console.log(`[CRAZII-WS] Trying ${url}...`);
+      if (json.values && json.values.length > 0) {
+        // Newest candle = json.values[0]
+        const v = json.values[0];
+        const time = Math.floor(new Date(v.datetime + ' GMT').getTime() / 1000);
 
-    ws = new WebSocket(url);
-
-    ws.onopen = () => {
-      console.log(`[CRAZII-WS] Connected, subscribing: ${stream}`);
-      ws!.send(JSON.stringify({ method: 'SUBSCRIBE', params: [stream], id: 1 }));
-
-      // Nếu sau 8s không nhận data → thử endpoint khác hoặc fallback polling
-      setTimeout(() => {
-        if (!hasReceivedData && !isClosed) {
-          console.warn('[CRAZII-WS] No data after 8s, trying next...');
-          try { ws?.close(); } catch {}
-          endpointIdx++;
-          if (endpointIdx < WS_ENDPOINTS.length) {
-            connect();
-          } else {
-            // Tất cả WS bị block → fallback REST polling 5s
-            startPolling();
-          }
-        }
-      }, 8000);
-    };
-
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.id || data.result !== undefined) return;
-        const kline = data.k;
-        if (!kline) return;
-
-        hasReceivedData = true;
         onUpdate({
-          time: Math.floor(kline.t / 1000),
-          open: parseFloat(kline.o),
-          high: parseFloat(kline.h),
-          low: parseFloat(kline.l),
-          close: parseFloat(kline.c),
-          volume: parseFloat(kline.v),
-          isClosed: kline.x,
+          time,
+          open: parseFloat(v.open),
+          high: parseFloat(v.high),
+          low: parseFloat(v.low),
+          close: parseFloat(v.close),
+          volume: v.volume ? parseFloat(v.volume) : 0,
+          isClosed: false, // Twelve Data trả nến đang mở
         });
-      } catch { /* skip */ }
-    };
-
-    ws.onerror = () => {
-      if (!isClosed && !hasReceivedData) {
-        console.warn('[CRAZII-WS] Error on', url);
       }
-    };
+    } catch { /* silent */ }
+  };
 
-    ws.onclose = () => {
-      if (!isClosed && hasReceivedData) {
-        // Đã từng nhận data → reconnect cùng endpoint
-        console.log('[CRAZII-WS] Disconnected, reconnecting in 3s...');
-        reconnectTimer = setTimeout(connect, 3000);
-      }
-    };
-  }
-
-  // REST polling fallback khi WS bị block hoàn toàn
-  function startPolling() {
-    if (isClosed) return;
-    console.log('[CRAZII-POLL] WS unavailable, starting REST polling every 3s');
-
-    const poll = async () => {
-      if (isClosed) return;
-      try {
-        const url = `${BINANCE_FUTURES}/klines?symbol=XAUUSDT&interval=${interval}&limit=2`;
-        const res = await fetchBinance(url);
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          // Gửi nến gần nhất (đang mở)
-          const last = data[data.length - 1];
-          const isCandleClosed = (last[6] as number) < Date.now(); // closeTime < now = closed
-          onUpdate({
-            time: Math.floor((last[0] as number) / 1000),
-            open: parseFloat(last[1] as string),
-            high: parseFloat(last[2] as string),
-            low: parseFloat(last[3] as string),
-            close: parseFloat(last[4] as string),
-            volume: parseFloat(last[5] as string),
-            isClosed: isCandleClosed,
-          });
-        }
-      } catch { /* silent */ }
-    };
-
-    poll();
-    pollTimer = setInterval(poll, 3000);
-  }
-
-  connect();
+  // Poll ngay + lặp mỗi 8s
+  poll();
+  const timer = setInterval(poll, 8000);
 
   return {
     close: () => {
-      isClosed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (pollTimer) clearInterval(pollTimer);
-      if (ws) { try { ws.close(); } catch {} }
+      active = false;
+      clearInterval(timer);
     },
   };
 }
