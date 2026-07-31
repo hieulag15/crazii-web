@@ -216,6 +216,23 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
           >
             🗑️
           </button>
+          <button
+            onClick={clearOldSignals}
+            disabled={clearing}
+            title="Xóa toàn bộ tín hiệu cũ (MongoDB)"
+            style={{
+              background: clearing ? '#334155' : '#7f1d1d',
+              border: '1px solid #991b1b',
+              color: '#fee2e2',
+              padding: '3px 8px',
+              borderRadius: 4,
+              cursor: clearing ? 'not-allowed' : 'pointer',
+              fontSize: 11,
+              opacity: clearing ? 0.7 : 1,
+            }}
+          >
+            {clearing ? 'Dang xoa...' : 'Xoa tin hieu'}
+          </button>
           <span style={{ fontSize: 11, color: '#64748b' }}>OANDA:XAUUSD 5M</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -308,6 +325,31 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Floating clear button (always visible while scrolling) */}
+      <button
+        onClick={clearOldSignals}
+        disabled={clearing}
+        title="Xóa toàn bộ tín hiệu cũ (MongoDB)"
+        style={{
+          position: 'fixed',
+          right: 18,
+          bottom: 18,
+          zIndex: 2000,
+          background: clearing ? '#334155' : '#7f1d1d',
+          border: '1px solid #991b1b',
+          color: '#fee2e2',
+          padding: '9px 12px',
+          borderRadius: 999,
+          cursor: clearing ? 'not-allowed' : 'pointer',
+          fontSize: 12,
+          fontWeight: 700,
+          boxShadow: '0 8px 22px rgba(0,0,0,0.35)',
+          opacity: clearing ? 0.75 : 1,
+        }}
+      >
+        {clearing ? '⏳ Dang xoa...' : '🗑️ Xoa tin hieu cu'}
+      </button>
     </div>
   );
 }
