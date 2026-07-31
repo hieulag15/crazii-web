@@ -166,7 +166,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Manual reset: clear old signals before a new backtest cycle.
-    if (req.method === 'DELETE') {
+    const isResetPost = req.method === 'POST' && String((req.query.action || req.body?.action || '')).toLowerCase() === 'clear';
+    if (req.method === 'DELETE' || isResetPost) {
       const scope = String(req.query.scope || 'strategy');
       const filter = scope === 'all' ? {} : { strategyVersion: STRATEGY_VERSION };
       const result = await col.deleteMany(filter);

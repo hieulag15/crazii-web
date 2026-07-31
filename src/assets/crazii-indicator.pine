@@ -415,7 +415,7 @@ if array.size(bullBoxes) > 0
             if not array.get(bullTouchTriggered, i)
                 alertBuyTouch := true
                 array.set(bullTouchTriggered, i, true)
-                if showTouchAlert
+                if showTouchAlert and not i_tamDiemOnly
                     label l = label.new(bar_index, low, "BUY", color=colBull, textcolor=color.white, style=label.style_label_up, size=size.small)
                     array.set(bullTouchLabels, i, l)
         if close < bb
@@ -425,7 +425,7 @@ if array.size(bullBoxes) > 0
             else
                 box.delete(b)
             array.push(bullDel, i)
-        if low <= bt and low >= bb and close > bt and open > bt and showSignal and not isBullGap
+        if low <= bt and low >= bb and close > bt and open > bt and showSignal and not i_tamDiemOnly and not isBullGap
             if not array.get(bullTested, i)
                 label.new(bar_index, low, "▲", color=color.new(color.white, 100), textcolor=colBull, style=label.style_label_up, size=size.normal)
                 array.set(bullTested, i, true)
@@ -440,7 +440,7 @@ if array.size(bearBoxes) > 0
             if not array.get(bearTouchTriggered, i)
                 alertSellTouch := true
                 array.set(bearTouchTriggered, i, true)
-                if showTouchAlert
+                if showTouchAlert and not i_tamDiemOnly
                     label l = label.new(bar_index, high, "SELL", color=colBear, textcolor=color.white, style=label.style_label_down, size=size.small)
                     array.set(bearTouchLabels, i, l)
         if close > bt
@@ -450,7 +450,7 @@ if array.size(bearBoxes) > 0
             else
                 box.delete(b)
             array.push(bearDel, i)
-        if high >= bb and high <= bt and close < bb and open < bb and showSignal and not isBearGap
+        if high >= bb and high <= bt and close < bb and open < bb and showSignal and not i_tamDiemOnly and not isBearGap
             if not array.get(bearTested, i)
                 label.new(bar_index, high, "▼", color=color.new(color.white, 100), textcolor=colBear, style=label.style_label_down, size=size.normal)
                 array.set(bearTested, i, true)
@@ -563,8 +563,8 @@ alertcondition(plotTamSell, "CRAZII: Tam Diem SELL", "🔴 Tam Diem SELL - Hội
 alertcondition(not i_tamDiemOnly and plotCCRY, "CRAZII: CCRY BUY", "🔵 CCRY - Đổi màu BUY (trên OP)")
 alertcondition(not i_tamDiemOnly and plotCCYR, "CRAZII: CCYR SELL", "🟠 CCYR - Đổi màu SELL (dưới OP)")
 alertcondition(not i_tamDiemOnly and plotDiamond, "CRAZII: Blue Diamond", "💎 Blue Diamond - Swing Low")
-alertcondition(alertBuyTouch, "SMC: Chạm MUA OB", "🟩 Giá chạm vùng MUA Order Block")
-alertcondition(alertSellTouch, "SMC: Chạm BÁN OB", "🟥 Giá chạm vùng BÁN Order Block")
+alertcondition(not i_tamDiemOnly and alertBuyTouch, "SMC: Chạm MUA OB", "🟩 Giá chạm vùng MUA Order Block")
+alertcondition(not i_tamDiemOnly and alertSellTouch, "SMC: Chạm BÁN OB", "🟥 Giá chạm vùng BÁN Order Block")
 
 // ══════════════════════════════════════════════════════════════
 // 13. INFO TABLE

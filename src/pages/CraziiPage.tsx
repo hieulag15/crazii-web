@@ -145,8 +145,9 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
       setStatusMessage('');
 
       const res = await fetch('/api/crazii-signals?scope=all', {
-        method: 'DELETE',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear' }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -195,6 +196,26 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
           <h1 style={{ margin: 0, fontSize: 16, color: '#fbbf24', fontWeight: 800 }}>
             🏆 CRAZII SYSTEM
           </h1>
+          <button
+            onClick={clearOldSignals}
+            disabled={clearing}
+            title="Xóa toàn bộ tín hiệu cũ (MongoDB)"
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 999,
+              border: '1px solid #991b1b',
+              background: clearing ? '#334155' : '#7f1d1d',
+              color: '#fee2e2',
+              cursor: clearing ? 'not-allowed' : 'pointer',
+              fontSize: 13,
+              lineHeight: '24px',
+              padding: 0,
+              opacity: clearing ? 0.7 : 1,
+            }}
+          >
+            🗑️
+          </button>
           <span style={{ fontSize: 11, color: '#64748b' }}>OANDA:XAUUSD 5M</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -209,22 +230,6 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
             padding: '3px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11,
           }}>
             🔄 Refresh
-          </button>
-          <button
-            onClick={clearOldSignals}
-            disabled={clearing}
-            style={{
-              background: clearing ? '#334155' : '#7f1d1d',
-              border: '1px solid #991b1b',
-              color: '#fee2e2',
-              padding: '3px 10px',
-              borderRadius: 4,
-              cursor: clearing ? 'not-allowed' : 'pointer',
-              fontSize: 11,
-              opacity: clearing ? 0.7 : 1,
-            }}
-          >
-            {clearing ? '⏳ Dang xoa...' : '🧹 Xoa tin hieu cu'}
           </button>
           {onLogout && (
             <button onClick={onLogout} style={{
