@@ -27,9 +27,17 @@ grp_sig = "═══ CRAZII: Signals ═══"
 i_showTamDiem = input.bool(true, "Show Tam Diem (BIG BUY/SELL)", group=grp_sig)
 i_showEngulf  = input.bool(true, "Show CCRY/CCYR (Engulfing)", group=grp_sig)
 i_showDiamond = input.bool(true, "Show Diamond", group=grp_sig)
+i_tamDiemOnly = input.bool(true, "Chi call Tam Diem hoi tu", group=grp_sig)
 i_strictSignals = input.bool(true, "Strict mode (lọc nhiễu)", group=grp_sig)
-i_minBarsBetweenSignals = input.int(6, "Khoảng cách tối thiểu giữa 2 tín hiệu cùng chiều", minval=1, maxval=30, group=grp_sig)
+i_minBarsBetweenSignals = input.int(5, "Khoảng cách tối thiểu giữa 2 tín hiệu", minval=1, maxval=30, group=grp_sig)
 i_requireMLP = input.bool(true, "Yêu cầu đúng phía MLP", group=grp_sig)
+i_useEmaTrendFilter = input.bool(true, "Lọc theo EMA200 trend", group=grp_sig)
+i_useVolumeConfirm = input.bool(true, "Xác nhận Volume", group=grp_sig)
+i_volumeMultiplier = input.float(1.1, "Hệ số Volume xác nhận", minval=1.0, maxval=3.0, step=0.1, group=grp_sig)
+
+grp_extra = "═══ CRAZII: KSI/KCB Display ═══"
+i_showKSI = input.bool(true, "Show KSI status", group=grp_extra)
+i_showKCB = input.bool(true, "Show KCB levels", group=grp_extra)
 
 grp_smc = "═══ SMC: Cấu Trúc & Khối Lệnh ═══"
 lookbackInput  = input.int(2000, "Chu kỳ quét quá khứ", minval=100, maxval=5000, group=grp_smc)
@@ -76,15 +84,25 @@ opacityPD   = input.int(93, "Độ trong suốt P/D", minval=0, maxval=100, grou
 getGMT7Hour() =>
     hour(time, "Asia/Bangkok")
 
+getGMT7Minute() =>
+    minute(time, "Asia/Bangkok")
+
 var float currentOP = na
 var float yesterdayOP = na
 var float prevSessionClose = na
 
-isNewSession = getGMT7Hour() == i_opHour and minute == 0 and (getGMT7Hour()[1] != i_opHour or minute[1] != 0)
+isNewSession = getGMT7Hour() == i_opHour and getGMT7Minute() == 0 and (getGMT7Hour()[1] != i_opHour or getGMT7Minute()[1] != 0)
 if isNewSession
     yesterdayOP := currentOP
     prevSessionClose := close[1]
     currentOP := open
+
+if na(currentOP)
+    currentOP := ta.valuewhen(isNewSession, open, 0)
+if na(yesterdayOP)
+    yesterdayOP := ta.valuewhen(isNewSession, open, 1)
+if na(prevSessionClose)
+    prevSessionClose := ta.valuewhen(isNewSession, close[1], 0)
 
 mlpValue = not na(yesterdayOP) and not na(prevSessionClose) ? (yesterdayOP + prevSessionClose) / 2.0 : na
 
@@ -100,6 +118,8 @@ adrAvg  = ta.sma(adrHigh - adrLow, i_adrPeriod)
 
 var float ktrUnit = na
 if isNewSession and not na(adrAvg)
+    ktrUnit := adrAvg / 3.0
+if na(ktrUnit) and not na(adrAvg)
     ktrUnit := adrAvg / 3.0
 
 ktrP1 = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit     : na
@@ -136,26 +156,43 @@ barcolor(i_showHA ? haColor : na, title="HA Color")
 // ══════════════════════════════════════════════════════════════
 var int lastBuySignalBar = na
 var int lastSellSignalBar = na
-canBuySignal  = barstate.isconfirmed and (na(lastBuySignalBar) or (bar_index - lastBuySignalBar >= i_minBarsBetweenSignals))
-canSellSignal = barstate.isconfirmed and (na(lastSellSignalBar) or (bar_index - lastSellSignalBar >= i_minBarsBetweenSignals))
+var int lastAnySignalBar = na
+canAnySignal = barstate.isconfirmed and (na(lastAnySignalBar) or (bar_index - lastAnySignalBar >= i_minBarsBetweenSignals))
+canBuySignal  = canAnySignal and (na(lastBuySignalBar) or (bar_index - lastBuySignalBar >= i_minBarsBetweenSignals))
+canSellSignal = canAnySignal and (na(lastSellSignalBar) or (bar_index - lastSellSignalBar >= i_minBarsBetweenSignals))
 
 bodySize = math.abs(close - open)
 avgBody  = ta.sma(math.abs(close - open), 10)
 strongBody = na(avgBody) ? true : bodySize >= avgBody * 0.8
 mlpBuyPass = not i_requireMLP or (not na(mlpValue) and close > mlpValue)
 mlpSellPass = not i_requireMLP or (not na(mlpValue) and close < mlpValue)
+emaTrend = ta.ema(close, 200)
+emaBuyPass = not i_useEmaTrendFilter or close > emaTrend
+emaSellPass = not i_useEmaTrendFilter or close < emaTrend
+volAvg = ta.sma(volume, 20)
+volumeBuyPass = not i_useVolumeConfirm or (not na(volAvg) and volume > volAvg * i_volumeMultiplier and close > open)
+volumeSellPass = not i_useVolumeConfirm or (not na(volAvg) and volume > volAvg * i_volumeMultiplier and close < open)
+
+// KSI proxy (do TradingView script không có data KSI proprietary)
+ksiProxy = ta.ema((close - open) * volume, 14)
+ksiProxyBull = ksiProxy > ksiProxy[1]
+ksiProxyBear = ksiProxy < ksiProxy[1]
 
 // Tam Diem BUY: 3 nến vàng tăng dần + giá > OP
-tamBuyBase = haBull and haBull[1] and haBull[2] and
+bull3 = haBull and haBull[1] and haBull[2]
+bull4 = bull3 and haBull[3]
+tamBuyBase = (bull3 or bull4) and
              haClose_s > haClose_s[1] and haClose_s[1] > haClose_s[2] and
              not na(currentOP) and close > currentOP
-tamBuy = i_strictSignals ? (tamBuyBase and strongBody and mlpBuyPass) : tamBuyBase
+tamBuy = i_strictSignals ? (tamBuyBase and strongBody and mlpBuyPass and emaBuyPass and volumeBuyPass and ksiProxyBull) : tamBuyBase
 
 // Tam Diem SELL: 3 nến đỏ giảm dần + giá < OP
-tamSellBase = not haBull and not haBull[1] and not haBull[2] and
+bear3 = not haBull and not haBull[1] and not haBull[2]
+bear4 = bear3 and not haBull[3]
+tamSellBase = (bear3 or bear4) and
               haClose_s < haClose_s[1] and haClose_s[1] < haClose_s[2] and
               not na(currentOP) and close < currentOP
-tamSell = i_strictSignals ? (tamSellBase and strongBody and mlpSellPass) : tamSellBase
+tamSell = i_strictSignals ? (tamSellBase and strongBody and mlpSellPass and emaSellPass and volumeSellPass and ksiProxyBear) : tamSellBase
 
 plotTamBuy = i_showTamDiem and tamBuy and canBuySignal
 plotTamSell = i_showTamDiem and tamSell and canSellSignal
@@ -169,35 +206,46 @@ ccyrBase = not haBull and haBull[1] and not na(currentOP) and close < currentOP
 
 bullEngulfBody = close > open[1] and open <= close[1]
 bearEngulfBody = close < open[1] and open >= close[1]
+prevBodySize = math.abs(close[1] - open[1])
+bodyDominance = bodySize > prevBodySize
 
-ccryStrict = ccryBase and not haBull[2] and bullEngulfBody and mlpBuyPass
-ccyrStrict = ccyrBase and haBull[2] and bearEngulfBody and mlpSellPass
+ccryStrict = ccryBase and not haBull[2] and bullEngulfBody and bodyDominance and mlpBuyPass and emaBuyPass and volumeBuyPass
+ccyrStrict = ccyrBase and haBull[2] and bearEngulfBody and bodyDominance and mlpSellPass and emaSellPass and volumeSellPass
 
 ccry = i_strictSignals ? ccryStrict : ccryBase
 ccyr = i_strictSignals ? ccyrStrict : ccyrBase
 
-plotCCRY = i_showEngulf and ccry and canBuySignal
-plotCCYR = i_showEngulf and ccyr and canSellSignal
+plotCCRY = (not i_tamDiemOnly) and i_showEngulf and ccry and canBuySignal
+plotCCYR = (not i_tamDiemOnly) and i_showEngulf and ccyr and canSellSignal
 
 plotshape(plotCCRY, "CCRY", shape.labelup, location.belowbar, color=color.new(#3b82f6, 0), size=size.tiny, text="CCRY", textcolor=color.white)
 plotshape(plotCCYR, "CCYR", shape.labeldown, location.abovebar, color=color.new(#f97316, 0), size=size.tiny, text="CCYR", textcolor=color.white)
 
 // Blue Diamond: swing low + đảo chiều
 blueDiamondBase = low <= ta.lowest(low, 5) and close > open and haBull and not haBull[1]
-blueDiamond = i_strictSignals ? (blueDiamondBase and not na(currentOP) and close > currentOP and mlpBuyPass) : blueDiamondBase
-plotDiamond = i_showDiamond and blueDiamond and canBuySignal
+blueDiamond = i_strictSignals ? (blueDiamondBase and not na(currentOP) and close > currentOP and mlpBuyPass and emaBuyPass and volumeBuyPass) : blueDiamondBase
+plotDiamond = (not i_tamDiemOnly) and i_showDiamond and blueDiamond and canBuySignal
 plotshape(plotDiamond, "Diamond", shape.diamond, location.belowbar, color=#00bcd4, size=size.small, text="◆")
 
 if barstate.isconfirmed
     if plotTamBuy or plotCCRY or plotDiamond
         lastBuySignalBar := bar_index
+        lastAnySignalBar := bar_index
     if plotTamSell or plotCCYR
         lastSellSignalBar := bar_index
+        lastAnySignalBar := bar_index
+
+// KCB proxy levels: dùng đỉnh/đáy ngày trước làm target phản ứng gần nhất
+prevDayHigh = request.security(syminfo.tickerid, "D", high[1])
+prevDayLow  = request.security(syminfo.tickerid, "D", low[1])
+plot(i_showKCB and not na(prevDayHigh) ? prevDayHigh : na, "KCB Up", color=color.new(#06b6d4, 35), linewidth=1, style=plot.style_linebr)
+plot(i_showKCB and not na(prevDayLow) ? prevDayLow : na, "KCB Down", color=color.new(#f43f5e, 35), linewidth=1, style=plot.style_linebr)
 
 // ══════════════════════════════════════════════════════════════
 // 6. SMC: EMA 200 & HVB
 // ══════════════════════════════════════════════════════════════
 ema200 = ta.ema(close, 200)
+ema200 := emaTrend
 plot(showEma200 ? ema200 : na, "EMA 200", color=colEma200, linewidth=2)
 
 volEma = ta.ema(volume, 12)
@@ -512,19 +560,21 @@ if showLiq and barstate.isconfirmed
 // ══════════════════════════════════════════════════════════════
 alertcondition(plotTamBuy, "CRAZII: Tam Diem BUY", "🟢 Tam Diem BUY - Hội tụ đa tầng")
 alertcondition(plotTamSell, "CRAZII: Tam Diem SELL", "🔴 Tam Diem SELL - Hội tụ đa tầng")
-alertcondition(plotCCRY, "CRAZII: CCRY BUY", "🔵 CCRY - Đổi màu BUY (trên OP)")
-alertcondition(plotCCYR, "CRAZII: CCYR SELL", "🟠 CCYR - Đổi màu SELL (dưới OP)")
-alertcondition(plotDiamond, "CRAZII: Blue Diamond", "💎 Blue Diamond - Swing Low")
+alertcondition(not i_tamDiemOnly and plotCCRY, "CRAZII: CCRY BUY", "🔵 CCRY - Đổi màu BUY (trên OP)")
+alertcondition(not i_tamDiemOnly and plotCCYR, "CRAZII: CCYR SELL", "🟠 CCYR - Đổi màu SELL (dưới OP)")
+alertcondition(not i_tamDiemOnly and plotDiamond, "CRAZII: Blue Diamond", "💎 Blue Diamond - Swing Low")
 alertcondition(alertBuyTouch, "SMC: Chạm MUA OB", "🟩 Giá chạm vùng MUA Order Block")
 alertcondition(alertSellTouch, "SMC: Chạm BÁN OB", "🟥 Giá chạm vùng BÁN Order Block")
 
 // ══════════════════════════════════════════════════════════════
 // 13. INFO TABLE
 // ══════════════════════════════════════════════════════════════
-var table info = table.new(position.top_right, 2, 6, bgcolor=color.new(#0f172a, 10), border_color=color.new(#334155, 50), border_width=1)
+var table info = table.new(position.top_right, 2, 8, bgcolor=color.new(#0f172a, 10), border_color=color.new(#334155, 50), border_width=1)
 if barstate.islast
     opRule = not na(currentOP) ? (close > currentOP ? "BUY ✅" : "SELL ✅") : "—"
     opCol = not na(currentOP) ? (close > currentOP ? color.green : color.red) : color.gray
+    ksiTxt = ksiProxyBull ? "BUYING" : ksiProxyBear ? "SELLING" : "NEUTRAL"
+    ksiCol = ksiProxyBull ? color.green : ksiProxyBear ? color.red : color.gray
     table.cell(info, 0, 0, "OP", text_color=color.gray, text_size=size.tiny)
     table.cell(info, 1, 0, not na(currentOP) ? str.tostring(currentOP, format.mintick) : "—", text_color=#fbbf24, text_size=size.tiny)
     table.cell(info, 0, 1, "MLP", text_color=color.gray, text_size=size.tiny)
@@ -537,3 +587,7 @@ if barstate.islast
     table.cell(info, 1, 4, not na(ktrP1) ? str.tostring(ktrP1, format.mintick) : "—", text_color=#22c55e, text_size=size.tiny)
     table.cell(info, 0, 5, "KTR-1", text_color=color.gray, text_size=size.tiny)
     table.cell(info, 1, 5, not na(ktrM1) ? str.tostring(ktrM1, format.mintick) : "—", text_color=#ef4444, text_size=size.tiny)
+    table.cell(info, 0, 6, "KSI", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 6, i_showKSI ? ksiTxt : "—", text_color=i_showKSI ? ksiCol : color.gray, text_size=size.tiny)
+    table.cell(info, 0, 7, "KCB", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 7, i_showKCB and not na(prevDayHigh) and not na(prevDayLow) ? str.tostring(prevDayLow, format.mintick) + " / " + str.tostring(prevDayHigh, format.mintick) : "—", text_color=#06b6d4, text_size=size.tiny)

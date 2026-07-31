@@ -115,6 +115,8 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState('');
   const [error, setError] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [clearing, setClearing] = useState(false);
 
   const fetchSignals = useCallback(async () => {
     try {
@@ -130,6 +132,34 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
       setError(err.message || 'Fetch failed');
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const clearOldSignals = useCallback(async () => {
+    const ok = window.confirm('Xóa toàn bộ tín hiệu CRAZII cũ để reset backtest?');
+    if (!ok) return;
+
+    try {
+      setClearing(true);
+      setError('');
+      setStatusMessage('');
+
+      const res = await fetch('/api/crazii-signals?scope=all', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      setSignals([]);
+      setStatusMessage(`Da xoa ${data.cleared || 0} tin hieu cu. He thong san sang backtest moi.`);
+      setLastRefresh(new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
+    } catch (err: any) {
+      setError(err.message || 'Clear failed');
+    } finally {
+      setClearing(false);
     }
   }, []);
 
@@ -180,6 +210,22 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
           }}>
             🔄 Refresh
           </button>
+          <button
+            onClick={clearOldSignals}
+            disabled={clearing}
+            style={{
+              background: clearing ? '#334155' : '#7f1d1d',
+              border: '1px solid #991b1b',
+              color: '#fee2e2',
+              padding: '3px 10px',
+              borderRadius: 4,
+              cursor: clearing ? 'not-allowed' : 'pointer',
+              fontSize: 11,
+              opacity: clearing ? 0.7 : 1,
+            }}
+          >
+            {clearing ? '⏳ Dang xoa...' : '🧹 Xoa tin hieu cu'}
+          </button>
           {onLogout && (
             <button onClick={onLogout} style={{
               background: '#1e293b', border: 'none', color: '#94a3b8',
@@ -213,6 +259,7 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
             <span style={{ fontSize: 10, color: '#eab308' }}>⏳ Pending: {pendingCount}</span>
             <span style={{ fontSize: 10, color: '#22c55e' }}>✅ TP: {tpCount}</span>
             <span style={{ fontSize: 10, color: '#ef4444' }}>❌ SL: {slCount}</span>
+            {statusMessage && <span style={{ fontSize: 10, color: '#22c55e' }}>✅ {statusMessage}</span>}
             {error && <span style={{ fontSize: 10, color: '#ef4444' }}>⚠️ {error}</span>}
           </div>
 

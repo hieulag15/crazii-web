@@ -165,6 +165,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       indexesReady = true;
     }
 
+    // Manual reset: clear old signals before a new backtest cycle.
+    if (req.method === 'DELETE') {
+      const scope = String(req.query.scope || 'strategy');
+      const filter = scope === 'all' ? {} : { strategyVersion: STRATEGY_VERSION };
+      const result = await col.deleteMany(filter);
+      return res.json({
+        ok: true,
+        cleared: result.deletedCount || 0,
+        scope,
+        strategyVersion: STRATEGY_VERSION,
+      });
+    }
+
     const trackResults: string[] = [];
     const newSignals: string[] = [];
 
