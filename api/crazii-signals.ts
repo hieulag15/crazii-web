@@ -15,6 +15,13 @@ import { calculateAll, calculateADR, calculatePivot } from '../src/utils/craziiE
 import type { Candle, EnhancedSignal } from '../src/types/index.js';
 
 const TD_BASE = 'https://api.twelvedata.com';
+const VN_OFFSET_SECONDS = 7 * 60 * 60;
+
+const SIGNAL_LOOKBACK_SECONDS = 48 * 60 * 60; // 48h
+const MAX_SIGNALS_TO_INSERT_PER_RUN = 24;
+const PENDING_SCAN_LIMIT = 60;
+const HISTORY_SCAN_SIZE = 500;
+let indexesReady = false;
 
 function getTDKey(): string {
   return process.env.TWELVEDATA_KEY || process.env.VITE_TWELVEDATA_KEY || '';
@@ -45,6 +52,20 @@ async function fetchTDCandles(interval: string, outputsize: number): Promise<Can
     close: parseFloat(v.close),
     volume: v.volume ? parseFloat(v.volume) : 0,
   })).reverse();
+}
+
+function isFutureSignalTime(signalTime: number, toleranceSeconds = 90): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  return signalTime > (now + toleranceSeconds);
+}
+
+function toVietnamEpochSeconds(ts: number): number {
+  return ts + VN_OFFSET_SECONDS;
+}
+
+function isRecentSignalTime(signalTime: number, lookbackSeconds = SIGNAL_LOOKBACK_SECONDS): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  return signalTime >= (now - lookbackSeconds);
 }
 
 /** Local ATR calculation */
@@ -132,22 +153,50 @@ function calculateTPSL(
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
+    const nowEpoch = Math.floor(Date.now() / 1000);
     const db = await getDB();
     const col = db.collection('crazii_signals');
+    if (!indexesReady) {
+      await col.createIndex({ time: 1, side: 1 });
+      await col.createIndex({ outcome: 1, time: 1 });
+      await col.createIndex({ time: -1 });
+      indexesReady = true;
+    }
+
     const trackResults: string[] = [];
     const newSignals: string[] = [];
 
+    // Sanitize legacy future-dated rows so they never pollute the table.
+    await col.updateMany(
+      { time: { $gt: nowEpoch + 90 }, outcome: 'pending' },
+      { $set: { outcome: 'expired', closedAt: Date.now(), closePrice: null, note: 'future_timestamp_filtered' } }
+    );
+
     // ====== PHASE 1: Check pending signals for TP/SL hit ======
-    const pending = await col.find({ outcome: 'pending' }).toArray();
+    const pending = await col.find({ outcome: 'pending' })
+      .sort({ time: -1 })
+      .limit(PENDING_SCAN_LIMIT)
+      .toArray();
 
     if (pending.length > 0) {
-      // Get current price from latest candle
-      const recentCandles = await fetchTDCandles('5m', 10);
+      // Load enough history to verify whether TP/SL has been touched after signal time.
+      let recentCandles: Candle[] = [];
+      try {
+        recentCandles = await fetchTDCandles('5m', HISTORY_SCAN_SIZE);
+      } catch (e) {
+        console.warn('[CRAZII-SIGNALS] Pending tracker skipped:', e);
+      }
       if (recentCandles.length > 0) {
-        const currentPrice = recentCandles[recentCandles.length - 1].close;
+        const latestCandleTime = recentCandles[recentCandles.length - 1].time;
 
         for (const sig of pending) {
-          // Check against current price using recent candles
+          if (!sig.time || typeof sig.time !== 'number') continue;
+          // Ignore malformed or future timestamps in DB
+          if (isFutureSignalTime(sig.time)) continue;
+
+          // If signal is too old for available history, skip this cycle.
+          if (sig.time < recentCandles[0].time) continue;
+
           let hit = false;
           for (const c of recentCandles) {
             if (c.time <= (sig.time || 0)) continue;
@@ -176,75 +225,94 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               }
             }
           }
+
+          // Auto-expire stale pending signals so WR doesn't stay locked at 0 forever.
+          if (!hit && latestCandleTime - sig.time > 36 * 60 * 60) {
+            await col.updateOne(
+              { _id: sig._id, outcome: 'pending' },
+              { $set: { outcome: 'expired', closedAt: Date.now(), closePrice: null } }
+            );
+            trackResults.push(`Expired signal @ ${sig.entry?.toFixed?.(2) ?? 'n/a'}`);
+          }
         }
       }
     }
 
     // ====== PHASE 2: Generate new signals ======
-    const [candles5m, dailyCandles] = await Promise.all([
-      fetchTDCandles('5m', 800),
-      fetchTDCandles('1d', 10),
-    ]);
+    try {
+      const [candles5m, dailyCandles] = await Promise.all([
+        fetchTDCandles('5m', HISTORY_SCAN_SIZE),
+        fetchTDCandles('1d', 10),
+      ]);
 
-    if (candles5m.length < 50) {
-      return res.json({ ok: true, signals: [], message: 'Not enough candle data' });
-    }
+      if (candles5m.length >= 50) {
+        // Run CRAZII engine
+        const pivot = calculatePivot(dailyCandles);
+        const adr = calculateADR(dailyCandles, 5);
+        const craziiResult = calculateAll(candles5m, {
+          opHour: 5,
+          ktrMultiplier: 1.0,
+          haSmooth: 6,
+          dailyRange: adr,
+          pivot,
+          minConfidence: 55,
+        });
 
-    // Run CRAZII engine
-    const pivot = calculatePivot(dailyCandles);
-    const adr = calculateADR(dailyCandles, 5);
-    const craziiResult = calculateAll(candles5m, {
-      opHour: 5,
-      ktrMultiplier: 1.0,
-      haSmooth: 6,
-      dailyRange: adr,
-      pivot,
-      minConfidence: 55,
-    });
+        // Extract signals with confidence >= 55%
+        const enhancedSignals = craziiResult.enhancedSignals
+          .filter(s => s.confidence >= 55)
+          .filter(s => isRecentSignalTime(s.time))
+          .filter(s => !isFutureSignalTime(s.time));
 
-    // Extract signals with confidence >= 55%
-    const enhancedSignals = craziiResult.enhancedSignals.filter(s => s.confidence >= 55);
+        // Get KTR levels for TP calculation
+        const lastKTR = craziiResult.ktrs[craziiResult.ktrs.length - 1]?.levels || null;
+        const ktrForTP = lastKTR ? { plus1: lastKTR.plus1, minus1: lastKTR.minus1 } : null;
 
-    // Get KTR levels for TP calculation
-    const lastKTR = craziiResult.ktrs[craziiResult.ktrs.length - 1]?.levels || null;
-    const ktrForTP = lastKTR ? { plus1: lastKTR.plus1, minus1: lastKTR.minus1 } : null;
+        // Save new signals (avoid duplicates by checking time + side)
+        const candidates = enhancedSignals
+          .sort((a, b) => b.time - a.time)
+          .slice(0, MAX_SIGNALS_TO_INSERT_PER_RUN);
 
-    // Save new signals (avoid duplicates by checking time + side)
-    for (const sig of enhancedSignals) {
-      const exists = await col.findOne({ time: sig.time, side: sig.side });
-      if (exists) continue;
+        for (const sig of candidates) {
+          const exists = await col.findOne({ time: sig.time, side: sig.side });
+          if (exists) continue;
 
-      const { sl, tp, rr } = calculateTPSL(sig, candles5m, ktrForTP);
+          const { sl, tp, rr } = calculateTPSL(sig, candles5m, ktrForTP);
 
-      // Build confluences array for storage
-      const confluences = sig.confluences.map(c => ({
-        name: c.name,
-        passed: c.passed,
-        detail: c.detail,
-      }));
+          // Build confluences array for storage
+          const confluences = sig.confluences.map(c => ({
+            name: c.name,
+            passed: c.passed,
+            detail: c.detail,
+          }));
 
-      const doc = {
-        time: sig.time,
-        side: sig.side,
-        source: sig.source,
-        entry: sig.entry,
-        sl,
-        tp,
-        rr: Math.round(rr * 100) / 100,
-        confidence: sig.confidence,
-        reason: sig.reason,
-        confluences,
-        outcome: 'pending',
-        createdAt: new Date(),
-      };
+          const doc = {
+            time: sig.time,
+            timeVN: toVietnamEpochSeconds(sig.time),
+            side: sig.side,
+            source: sig.source,
+            entry: sig.entry,
+            sl,
+            tp,
+            rr: Math.round(rr * 100) / 100,
+            confidence: sig.confidence,
+            reason: sig.reason,
+            confluences,
+            outcome: 'pending',
+            createdAt: new Date(sig.time * 1000),
+          };
 
-      await col.insertOne(doc);
-      newSignals.push(`${sig.side.toUpperCase()} @ ${sig.entry.toFixed(2)} (${sig.confidence}%)`);
+          await col.insertOne(doc);
+          newSignals.push(`${sig.side.toUpperCase()} @ ${sig.entry.toFixed(2)} (${sig.confidence}%)`);
+        }
+      }
+    } catch (e) {
+      console.warn('[CRAZII-SIGNALS] Signal generation skipped:', e);
     }
 
     // ====== PHASE 3: Return latest 20 signals ======
-    const latest = await col.find({})
-      .sort({ createdAt: -1 })
+    const latest = await col.find({ time: { $lte: nowEpoch + 90 } })
+      .sort({ time: -1 })
       .limit(20)
       .toArray();
 

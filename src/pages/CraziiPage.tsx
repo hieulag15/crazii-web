@@ -18,7 +18,7 @@ interface CraziiSignal {
   confidence: number;
   reason: string;
   confluences: { name: string; passed: boolean; detail: string }[];
-  outcome: 'pending' | 'tp' | 'sl';
+  outcome: 'pending' | 'tp' | 'sl' | 'expired';
   createdAt: string;
 }
 
@@ -49,7 +49,8 @@ function SignalRow({ signal }: { signal: CraziiSignal }) {
     signal.outcome === 'tp' ? '#22c55e' : '#ef4444';
   const outcomeIcon =
     signal.outcome === 'pending' ? '⏳' :
-    signal.outcome === 'tp' ? '✅' : '❌';
+    signal.outcome === 'tp' ? '✅' :
+    signal.outcome === 'expired' ? '⌛' : '❌';
 
   return (
     <tr style={{ borderBottom: '1px solid #1e293b' }}>
@@ -118,7 +119,7 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
   const fetchSignals = useCallback(async () => {
     try {
       setError('');
-      const res = await fetch('/api/crazii-signals');
+      const res = await fetch('/api/crazii-signals', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.ok && data.signals) {
