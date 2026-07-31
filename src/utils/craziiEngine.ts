@@ -407,41 +407,68 @@ export function detectDJDD(candles: Candle[]): DJDDSignal[] {
 export function detectEngulfing(
   candles: Candle[],
   haCandles: HACandle[],
-  ops: OPData[]
+  ops: OPData[],
+  mlps: MLPData[]
 ): TradeSignal[] {
   const signals: TradeSignal[] = [];
 
-  for (let i = 1; i < haCandles.length; i++) {
+  for (let i = 3; i < haCandles.length; i++) {
     const op = ops[i]?.op;
+    const mlp = mlps[i]?.mlp ?? null;
     if (op === null || op === undefined) continue;
+
+    // Theo tài liệu: cần có 2-3 nến ngược màu trước khi đổi màu + thân nến nhấn chìm.
+    const hadRecentBearSeq =
+      !haCandles[i - 1].isBull &&
+      !haCandles[i - 2].isBull;
+    const hadRecentBullSeq =
+      haCandles[i - 1].isBull &&
+      haCandles[i - 2].isBull;
+
+    // Nhấn chìm thân nến trước đó
+    const bullEngulfBody =
+      candles[i].close > candles[i - 1].open &&
+      candles[i].open <= candles[i - 1].close;
+    const bearEngulfBody =
+      candles[i].close < candles[i - 1].open &&
+      candles[i].open >= candles[i - 1].close;
+
+    const mlpBuyPass = mlp === null || candles[i].close > mlp;
+    const mlpSellPass = mlp === null || candles[i].close < mlp;
 
     // CCRY: nến trước ĐỎ, nến này VÀNG + giá trên OP -> BUY
     if (
       haCandles[i].isBull &&
-      !haCandles[i - 1].isBull &&
-      candles[i].close > op
+      hadRecentBearSeq &&
+      candles[i].close > op &&
+      mlpBuyPass &&
+      bullEngulfBody
     ) {
+      const mlpNote = mlp !== null ? `\n• Giá đóng trên MLP (${mlp.toFixed(2)})` : '';
       signals.push({
         time: candles[i].time,
         type: 'buy',
         price: candles[i].low,
         source: 'ccry',
-        reason: `CCRY - Đổi màu BUY:\n• Nến ĐỎ chuyển sang nến VÀNG\n• Giá đóng trên OP (${op.toFixed(2)})\n→ Tín hiệu BUY hợp lệ theo academy CRAZII`,
+        reason: `CCRY - Đổi màu BUY:\n• Có cụm 2-3 nến ĐỎ trước tín hiệu\n• Nến VÀNG hiện tại nhấn chìm nến trước\n• Giá đóng trên OP (${op.toFixed(2)})${mlpNote}\n→ Tín hiệu BUY hợp lệ theo tip CRAZII`,
       });
     }
 
     // CCYR: nến trước VÀNG, nến này ĐỎ + giá dưới OP -> SELL
     if (
       !haCandles[i].isBull &&
-      haCandles[i - 1].isBull &&
-      candles[i].close < op
+      hadRecentBullSeq &&
+      candles[i].close < op &&
+      mlpSellPass &&
+      bearEngulfBody
     ) {
+      const mlpNote = mlp !== null ? `\n• Giá đóng dưới MLP (${mlp.toFixed(2)})` : '';
       signals.push({
         time: candles[i].time,
         type: 'sell',
         price: candles[i].high,
         source: 'ccyr',
-        reason: `CCYR - Đổi màu SELL:\n• Nến VÀNG chuyển sang nến ĐỎ\n• Giá đóng dưới OP (${op.toFixed(2)})\n→ Tín hiệu SELL hợp lệ theo academy CRAZII`,
+        reason: `CCYR - Đổi màu SELL:\n• Có cụm 2-3 nến VÀNG trước tín hiệu\n• Nến ĐỎ hiện tại nhấn chìm nến trước\n• Giá đóng dưới OP (${op.toFixed(2)})${mlpNote}\n→ Tín hiệu SELL hợp lệ theo tip CRAZII`,
       });
     }
   }
@@ -459,6 +486,7 @@ export function detectTamDiem(
   candles: Candle[],
   haCandles: HACandle[],
   ops: OPData[],
+  mlps: MLPData[],
   ksi: KSIData[],
   kcx: KCXData[],
   pivot: PivotData | null = null
@@ -467,6 +495,7 @@ export function detectTamDiem(
 
   for (let i = 3; i < haCandles.length; i++) {
     const op = ops[i]?.op;
+    const mlp = mlps[i]?.mlp ?? null;
     if (op === null || op === undefined || !ksi[i] || !kcx[i]) continue;
 
     // Tam điểm BUY: 3 nến vàng tăng dần
@@ -480,21 +509,25 @@ export function detectTamDiem(
     // Điều kiện Pivot (academy): trên Pivot cho BUY
     const abovePivot = pivot === null || candles[i].close > pivot.pp;
     const belowPivot = pivot === null || candles[i].close < pivot.pp;
+    const mlpBuyPass = mlp === null || candles[i].close > mlp;
+    const mlpSellPass = mlp === null || candles[i].close < mlp;
 
     if (
       risingBull &&
       candles[i].close > op &&
+      mlpBuyPass &&
       abovePivot &&
       ksi[i].isBullish &&
       kcx[i].state === 'retailBuy'
     ) {
       const pivotNote = pivot !== null ? `\n• Giá trên Pivot (${pivot.pp.toFixed(2)})` : '';
+      const mlpNote = mlp !== null ? `\n• Giá trên MLP (${mlp.toFixed(2)})` : '';
       signals.push({
         time: candles[i].time,
         type: 'buy',
         price: candles[i].low,
         source: 'tamDiem',
-        reason: `BIG BUY - Hội Tụ Đa Tầng:\n• 3 nến VÀNG tăng dần liên tiếp\n• Giá đóng trên OP (${op.toFixed(2)})${pivotNote}\n• KSI xanh = Cá mập đang gom hàng\n• KCX đen = Nhỏ lẻ đang mua\n→ Tất cả điều kiện hội tụ theo academy CRAZII`,
+        reason: `BIG BUY - Hội Tụ Đa Tầng:\n• 3 nến VÀNG tăng dần liên tiếp\n• Giá đóng trên OP (${op.toFixed(2)})${mlpNote}${pivotNote}\n• KSI xanh = Cá mập đang gom hàng\n• KCX đen = Nhỏ lẻ đang mua\n→ Tất cả điều kiện hội tụ theo academy CRAZII`,
       });
     }
 
@@ -509,17 +542,19 @@ export function detectTamDiem(
     if (
       fallingBear &&
       candles[i].close < op &&
+      mlpSellPass &&
       belowPivot &&
       !ksi[i].isBullish &&
       kcx[i].state === 'retailSell'
     ) {
       const pivotNote = pivot !== null ? `\n• Giá dưới Pivot (${pivot.pp.toFixed(2)})` : '';
+      const mlpNote = mlp !== null ? `\n• Giá dưới MLP (${mlp.toFixed(2)})` : '';
       signals.push({
         time: candles[i].time,
         type: 'sell',
         price: candles[i].high,
         source: 'tamDiem',
-        reason: `BIG SELL - Hội Tụ Đa Tầng:\n• 3 nến ĐỎ giảm dần liên tiếp\n• Giá đóng dưới OP (${op.toFixed(2)})${pivotNote}\n• KSI đỏ = Cá mập đang xả hàng\n• KCX xanh dương = Nhỏ lẻ đang bán\n→ Tất cả điều kiện hội tụ theo academy CRAZII`,
+        reason: `BIG SELL - Hội Tụ Đa Tầng:\n• 3 nến ĐỎ giảm dần liên tiếp\n• Giá đóng dưới OP (${op.toFixed(2)})${mlpNote}${pivotNote}\n• KSI đỏ = Cá mập đang xả hàng\n• KCX xanh dương = Nhỏ lẻ đang bán\n→ Tất cả điều kiện hội tụ theo academy CRAZII`,
       });
     }
   }
@@ -538,6 +573,7 @@ export function detectDiamondBreak(
   candles: Candle[],
   haCandles: HACandle[],
   ops: OPData[],
+  mlps: MLPData[],
   diamonds: DiamondSignal[]
 ): TradeSignal[] {
   const signals: TradeSignal[] = [];
@@ -547,47 +583,70 @@ export function detectDiamondBreak(
   const diamondByTime = new Map<number, DiamondSignal>();
   diamonds.forEach((d) => diamondByTime.set(d.time, d));
 
-  let activeDML: { price: number; type: DiamondSignal['type'] } | null = null;
+  let activeDML: { price: number; type: DiamondSignal['type']; index: number } | null = null;
 
   for (let i = 0; i < candles.length; i++) {
     // Nếu nến này là nến kim cương -> thiết lập DML mới tại close
     const diamond = diamondByTime.get(candles[i].time);
     if (diamond) {
-      activeDML = { price: candles[i].close, type: diamond.type };
+      activeDML = { price: candles[i].close, type: diamond.type, index: i };
       continue; // không vào lệnh ngay tại nến kim cương
     }
 
     if (!activeDML) continue;
     const op = ops[i]?.op;
+    const mlp = mlps[i]?.mlp ?? null;
     if (op === null || op === undefined) continue;
 
-    // Strong Buy: đóng trên DML + trên OP + nến vàng
+    // Chỉ xét 1-2 nến ngay sau kim cương để tránh kéo dài nhiễu.
+    const barsSinceDiamond = i - activeDML.index;
+    if (barsSinceDiamond > 2) {
+      activeDML = null;
+      continue;
+    }
+
+    const mlpBuyPass = mlp === null || candles[i].close > mlp;
+    const mlpSellPass = mlp === null || candles[i].close < mlp;
+
+    const sellEngulf =
+      i > 0 &&
+      candles[i].close < candles[i - 1].open &&
+      candles[i].open >= candles[i - 1].close;
+
+    // Strong Buy: chỉ áp dụng với kim cương xanh + xác nhận ngay sau diamond.
     if (
+      activeDML.type === 'blue' &&
       candles[i].close > activeDML.price &&
       candles[i].close > op &&
+      mlpBuyPass &&
       haCandles[i].isBull
     ) {
+      const mlpNote = mlp !== null ? `\n• Giá trên MLP (${mlp.toFixed(2)})` : '';
       signals.push({
         time: candles[i].time,
         type: 'buy',
         price: candles[i].low,
         source: 'dml',
-        reason: `Kim Cương Nhấn Chìm BUY (DML):\n• Giá đóng VƯỢT đường Diamond Line (${activeDML.price.toFixed(2)})\n• Giá trên OP (${op.toFixed(2)})\n• Nến VÀNG xác nhận lực mua\n→ Strong Buy theo academy CRAZII`,
+        reason: `Kim Cương Nhấn Chìm BUY (DML):\n• Kim cương XANH vừa xuất hiện\n• Giá đóng VƯỢT đường Diamond Line (${activeDML.price.toFixed(2)})\n• Giá trên OP (${op.toFixed(2)})${mlpNote}\n• Nến VÀNG xác nhận lực mua\n→ Strong Buy theo academy CRAZII`,
       });
       activeDML = null; // DML đã bị phá, reset
     }
-    // Strong Sell: đóng dưới DML + dưới OP + nến đỏ
+    // Strong Sell: chỉ áp dụng với kim cương vỡ + có nhấn chìm nến trước.
     else if (
+      activeDML.type === 'broken' &&
       candles[i].close < activeDML.price &&
       candles[i].close < op &&
-      !haCandles[i].isBull
+      mlpSellPass &&
+      !haCandles[i].isBull &&
+      sellEngulf
     ) {
+      const mlpNote = mlp !== null ? `\n• Giá dưới MLP (${mlp.toFixed(2)})` : '';
       signals.push({
         time: candles[i].time,
         type: 'sell',
         price: candles[i].high,
         source: 'dml',
-        reason: `Kim Cương Nhấn Chìm SELL (DML):\n• Giá đóng THỦNG đường Diamond Line (${activeDML.price.toFixed(2)})\n• Giá dưới OP (${op.toFixed(2)})\n• Nến ĐỎ xác nhận lực bán\n→ Strong Sell theo academy CRAZII`,
+        reason: `Kim Cương Nhấn Chìm SELL (DML):\n• Kim cương VỠ vừa xuất hiện\n• Nến ĐỎ nhấn chìm nến trước đó\n• Giá đóng THỦNG đường Diamond Line (${activeDML.price.toFixed(2)})\n• Giá dưới OP (${op.toFixed(2)})${mlpNote}\n→ Strong Sell theo academy CRAZII`,
       });
       activeDML = null;
     }
@@ -613,9 +672,9 @@ export function calculateAll(
   const kcx = calculateKCX(candles);
   const diamonds = detectDiamonds(candles, haCandles);
   const djdd = detectDJDD(candles);
-  const engulfing = detectEngulfing(candles, haCandles, ops);
-  const tamDiem = detectTamDiem(candles, haCandles, ops, ksi, kcx, pivot);
-  const diamondBreak = detectDiamondBreak(candles, haCandles, ops, diamonds);
+  const engulfing = detectEngulfing(candles, haCandles, ops, mlps);
+  const tamDiem = detectTamDiem(candles, haCandles, ops, mlps, ksi, kcx, pivot);
+  const diamondBreak = detectDiamondBreak(candles, haCandles, ops, mlps, diamonds);
 
   // D) Phân tích kỹ thuật ICT
   const fvgs = detectFVG(candles);

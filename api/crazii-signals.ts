@@ -21,6 +21,7 @@ const SIGNAL_LOOKBACK_SECONDS = 48 * 60 * 60; // 48h
 const MAX_SIGNALS_TO_INSERT_PER_RUN = 24;
 const PENDING_SCAN_LIMIT = 60;
 const HISTORY_SCAN_SIZE = 500;
+const STRATEGY_VERSION = 'crazii-v2';
 let indexesReady = false;
 
 function getTDKey(): string {
@@ -160,6 +161,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await col.createIndex({ time: 1, side: 1 });
       await col.createIndex({ outcome: 1, time: 1 });
       await col.createIndex({ time: -1 });
+      await col.createIndex({ strategyVersion: 1, time: -1 });
       indexesReady = true;
     }
 
@@ -173,7 +175,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
 
     // ====== PHASE 1: Check pending signals for TP/SL hit ======
-    const pending = await col.find({ outcome: 'pending' })
+    const pending = await col.find({ outcome: 'pending', strategyVersion: STRATEGY_VERSION })
       .sort({ time: -1 })
       .limit(PENDING_SCAN_LIMIT)
       .toArray();
@@ -289,6 +291,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const doc = {
             time: sig.time,
             timeVN: toVietnamEpochSeconds(sig.time),
+            strategyVersion: STRATEGY_VERSION,
             side: sig.side,
             source: sig.source,
             entry: sig.entry,
@@ -311,10 +314,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ====== PHASE 3: Return latest 20 signals ======
-    const latest = await col.find({ time: { $lte: nowEpoch + 90 } })
+    let latest = await col.find({
+      time: { $lte: nowEpoch + 90 },
+      strategyVersion: STRATEGY_VERSION,
+    })
       .sort({ time: -1 })
       .limit(20)
       .toArray();
+
+    // Fallback cho hệ thống mới deploy nhưng chưa có đủ mẫu dữ liệu v2.
+    if (latest.length === 0) {
+      latest = await col.find({ time: { $lte: nowEpoch + 90 } })
+        .sort({ time: -1 })
+        .limit(20)
+        .toArray();
+    }
 
     // Format for response
     const signals = latest.map(s => ({

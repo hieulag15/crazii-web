@@ -43,6 +43,7 @@ const WEIGHTS = {
 export const MIN_CONFIDENCE = 55;
 // Số nến tối thiểu giữa 2 tín hiệu cùng hướng (debounce)
 const DEBOUNCE_BARS = 3;
+const OPPOSITE_COOLDOWN_BARS = 6;
 // Sideways detection params
 const SW_LOOKBACK = 20;       // số nến để phát hiện sideway
 const SW_ATR_RATIO = 0.6;    // ATR hiện tại / ATR dài hạn < ratio này = sideway
@@ -425,8 +426,22 @@ export function enhanceSignals(
   // C) Debounce: bỏ tín hiệu cùng hướng cách nhau < DEBOUNCE_BARS nến
   const filtered: EnhancedSignal[] = [];
   const lastIdxBySide: Record<string, number> = {};
+  let lastAccepted: EnhancedSignal | null = null;
   for (const e of enhanced) {
     const idx = indexByTime(ctx.candles, e.time);
+
+    // Chống flip-flop: nếu vừa có BUY mà vài nến sau ra SELL (hoặc ngược lại),
+    // chỉ chấp nhận khi tín hiệu mới mạnh vượt trội.
+    if (lastAccepted) {
+      const lastAcceptedIdx = indexByTime(ctx.candles, lastAccepted.time);
+      const isOpposite = lastAccepted.side !== e.side;
+      const inCooldown = idx - lastAcceptedIdx < OPPOSITE_COOLDOWN_BARS;
+      const muchStronger = e.confidence >= (lastAccepted.confidence + 18);
+      if (isOpposite && inCooldown && !muchStronger) {
+        continue;
+      }
+    }
+
     const lastIdx = lastIdxBySide[e.side];
     if (lastIdx !== undefined && idx - lastIdx < DEBOUNCE_BARS) {
       // Giữ tín hiệu confidence cao hơn
@@ -434,11 +449,13 @@ export function enhanceSignals(
       if (prev && prev.side === e.side && e.confidence > prev.confidence) {
         filtered[filtered.length - 1] = e;
         lastIdxBySide[e.side] = idx;
+        lastAccepted = e;
       }
       continue;
     }
     filtered.push(e);
     lastIdxBySide[e.side] = idx;
+    lastAccepted = e;
   }
 
   return filtered;
