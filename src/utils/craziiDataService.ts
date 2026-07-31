@@ -97,9 +97,9 @@ export async function fetchOandaGoldDaily(limit = 10): Promise<Candle[]> {
 }
 
 /**
- * WebSocket real-time cho XAUUSDT (Binance Futures)
- * Twelve Data WebSocket cần plan Pro ($30/mo) nên dùng Binance WS free
- * Giá Binance XAUUSDT chênh OANDA ~$3-5 nhưng biến động tick giống nhau
+ * WebSocket real-time cho XAU/USD
+ * Thử nhiều endpoint: Binance Futures WS → Spot WS
+ * Nếu cả 2 đều bị block → dùng REST polling 5s
  */
 export interface LiveGoldCandle extends Candle {
   isClosed: boolean;
@@ -113,14 +113,41 @@ export function connectGoldWebSocket(
   let isClosed = false;
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let hasReceivedData = false;
+
+  // WS endpoints to try (order of priority)
+  const WS_ENDPOINTS = [
+    'wss://fstream.binance.com/ws',   // Futures (chính xác nhất cho XAUUSDT)
+    'wss://stream.binance.com:9443/ws', // Spot (fallback, ổn định hơn)
+  ];
+  let endpointIdx = 0;
 
   function connect() {
     if (isClosed) return;
-    ws = new WebSocket('wss://fstream.binance.com/ws');
+    const url = WS_ENDPOINTS[endpointIdx];
+    console.log(`[CRAZII-WS] Trying ${url}...`);
+
+    ws = new WebSocket(url);
 
     ws.onopen = () => {
-      console.log('[CRAZII-WS] Connected, subscribing:', stream);
+      console.log(`[CRAZII-WS] Connected, subscribing: ${stream}`);
       ws!.send(JSON.stringify({ method: 'SUBSCRIBE', params: [stream], id: 1 }));
+
+      // Nếu sau 8s không nhận data → thử endpoint khác hoặc fallback polling
+      setTimeout(() => {
+        if (!hasReceivedData && !isClosed) {
+          console.warn('[CRAZII-WS] No data after 8s, trying next...');
+          try { ws?.close(); } catch {}
+          endpointIdx++;
+          if (endpointIdx < WS_ENDPOINTS.length) {
+            connect();
+          } else {
+            // Tất cả WS bị block → fallback REST polling 5s
+            startPolling();
+          }
+        }
+      }, 8000);
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -130,6 +157,7 @@ export function connectGoldWebSocket(
         const kline = data.k;
         if (!kline) return;
 
+        hasReceivedData = true;
         onUpdate({
           time: Math.floor(kline.t / 1000),
           open: parseFloat(kline.o),
@@ -143,15 +171,48 @@ export function connectGoldWebSocket(
     };
 
     ws.onerror = () => {
-      if (!isClosed) console.warn('[CRAZII-WS] Error, will reconnect');
+      if (!isClosed && !hasReceivedData) {
+        console.warn('[CRAZII-WS] Error on', url);
+      }
     };
 
     ws.onclose = () => {
-      if (!isClosed) {
-        console.log('[CRAZII-WS] Closed, reconnecting in 3s...');
+      if (!isClosed && hasReceivedData) {
+        // Đã từng nhận data → reconnect cùng endpoint
+        console.log('[CRAZII-WS] Disconnected, reconnecting in 3s...');
         reconnectTimer = setTimeout(connect, 3000);
       }
     };
+  }
+
+  // REST polling fallback khi WS bị block hoàn toàn
+  function startPolling() {
+    if (isClosed) return;
+    console.log('[CRAZII-POLL] WS unavailable, starting REST polling every 5s');
+
+    const poll = async () => {
+      if (isClosed) return;
+      try {
+        const url = `${BINANCE_FUTURES}/klines?symbol=XAUUSDT&interval=${interval}&limit=2`;
+        const res = await fetchBinance(url);
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const last = data[data.length - 1];
+          onUpdate({
+            time: Math.floor((last[0] as number) / 1000),
+            open: parseFloat(last[1] as string),
+            high: parseFloat(last[2] as string),
+            low: parseFloat(last[3] as string),
+            close: parseFloat(last[4] as string),
+            volume: parseFloat(last[5] as string),
+            isClosed: false,
+          });
+        }
+      } catch { /* silent */ }
+    };
+
+    poll();
+    pollTimer = setInterval(poll, 5000);
   }
 
   connect();
@@ -160,6 +221,7 @@ export function connectGoldWebSocket(
     close: () => {
       isClosed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pollTimer) clearInterval(pollTimer);
       if (ws) { try { ws.close(); } catch {} }
     },
   };
