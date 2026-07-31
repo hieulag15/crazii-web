@@ -1,231 +1,499 @@
-// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © CRAZII Trading System - Dubai Smart Trading Academy
-// Version 6 - All-in-One Indicator
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// © CRAZII Trading System + FVG/OB SMC - Dubai Smart Trading Academy
+// © SƠN DUBAI© - 2026. All rights reserved.
+// Version 6 - FULL SYSTEM: CRAZII + SMC Structure + FVG/OB + Liquidity
 
 //@version=6
-indicator("CRAZII System [OP/MLP/KTR/HA/Diamond/FVG/OB]", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+indicator("CRAZII + SMC [OP/MLP/KTR/HA/FVG/OB/BOS/CHoCH]", overlay=true,
+     max_lines_count=500, max_boxes_count=500, max_labels_count=500, max_bars_back=2000)
 
-// ============================================================
-// INPUTS
-// ============================================================
-grp_op     = "═══ OP & MLP ═══"
+// ══════════════════════════════════════════════════════════════
+// 1. INPUTS
+// ══════════════════════════════════════════════════════════════
+grp_op = "═══ CRAZII: OP & MLP ═══"
 i_opHour   = input.int(5, "OP Hour (GMT+7)", minval=0, maxval=23, group=grp_op)
 i_showOP   = input.bool(true, "Show OP Line", group=grp_op)
 i_showMLP  = input.bool(true, "Show MLP Line", group=grp_op)
 
-grp_ktr    = "═══ KTR Levels ═══"
-i_showKTR  = input.bool(true, "Show KTR Levels", group=grp_ktr)
+grp_ktr = "═══ CRAZII: KTR Levels ═══"
+i_showKTR   = input.bool(true, "Show KTR Levels", group=grp_ktr)
 i_adrPeriod = input.int(5, "ADR Period (days)", minval=1, maxval=30, group=grp_ktr)
 
-grp_ha     = "═══ Heiken Ashi Smoothed ═══"
+grp_ha = "═══ CRAZII: Heiken Ashi ═══"
 i_showHA   = input.bool(true, "Show HA Coloring", group=grp_ha)
 i_haSmooth = input.int(6, "HA Smooth Length", minval=1, maxval=20, group=grp_ha)
 
-grp_sig    = "═══ Signals ═══"
-i_showTamDiem = input.bool(true, "Show Tam Diem Signals", group=grp_sig)
-i_showEngulf  = input.bool(true, "Show Engulfing (CCRY/CCYR)", group=grp_sig)
+grp_sig = "═══ CRAZII: Signals ═══"
+i_showTamDiem = input.bool(true, "Show Tam Diem (BIG BUY/SELL)", group=grp_sig)
+i_showEngulf  = input.bool(true, "Show CCRY/CCYR (Engulfing)", group=grp_sig)
 i_showDiamond = input.bool(true, "Show Diamond", group=grp_sig)
 
-grp_ict    = "═══ FVG & Order Blocks ═══"
-i_showFVG  = input.bool(true, "Show FVG", group=grp_ict)
-i_showOB   = input.bool(true, "Show Order Blocks", group=grp_ict)
-i_fvgLookback = input.int(50, "FVG Lookback", minval=10, maxval=200, group=grp_ict)
+grp_smc = "═══ SMC: Cấu Trúc & Khối Lệnh ═══"
+lookbackInput  = input.int(2000, "Chu kỳ quét quá khứ", minval=100, maxval=5000, group=grp_smc)
+structLookback = input.int(10, "Chu kỳ tìm Đỉnh/Đáy", minval=5, maxval=50, group=grp_smc)
+isStructBody   = input.bool(true, "Phá vỡ bằng Thân nến", group=grp_smc)
+atrFilterMult  = input.float(0.5, "Bộ lọc FVG (Hệ số ATR)", minval=0.0, step=0.1, group=grp_smc)
+boxAmount      = input.int(6, "Số khối OB tối đa", minval=1, maxval=20, group=grp_smc)
 
-// ============================================================
-// UTILITY FUNCTIONS
-// ============================================================
-// Convert to GMT+7 hour
+grp_toggle = "═══ SMC: Hiển thị ═══"
+showImb        = input.bool(true, "Hiển thị FVG gốc", group=grp_toggle)
+showBroken     = input.bool(false, "Hiển thị OB đã thủng", group=grp_toggle)
+showSignal     = input.bool(true, "Mũi tên Test Cản", group=grp_toggle)
+showTouchAlert = input.bool(true, "Nhãn BUY/SELL chạm OB", group=grp_toggle)
+showEma200     = input.bool(true, "EMA 200", group=grp_toggle)
+showLiq        = input.bool(true, "Quét Thanh Khoản (LIQ)", group=grp_toggle)
+showOBFVG      = input.bool(true, "Kim cương ◆ (OB+FVG)", group=grp_toggle)
+
+grp_hvb = "═══ SMC: Nến HVB ═══"
+showHVB       = input.bool(false, "Đổi màu Nến HVB (tắt nếu dùng HA)", group=grp_hvb)
+hvbMultiplier = input.float(1.5, "Hệ số Volume đột biến", minval=1.0, maxval=5.0, step=0.1, group=grp_hvb)
+colHvbBull    = input.color(#006400, "Màu Nến Tăng HVB", group=grp_hvb)
+colHvbBear    = input.color(#ff0000, "Màu Nến Giảm HVB", group=grp_hvb)
+
+grp_color = "═══ Màu sắc ═══"
+colBull   = input.color(#14be94, "Khối Tăng (Bullish)", group=grp_color)
+colBear   = input.color(color.rgb(194, 25, 25), "Khối Giảm (Bearish)", group=grp_color)
+colChoch  = input.color(#ffd700, "Đường CHoCH", group=grp_color)
+colBos    = input.color(#c0c0c0, "Đường BOS", group=grp_color)
+colEma200 = input.color(#ff9800, "EMA 200", group=grp_color)
+colLiq    = input.color(#e91e63, "Quét Thanh Khoản", group=grp_color)
+opacityFvg = input.int(85, "Độ trong suốt FVG", minval=0, maxval=100, group=grp_color)
+opacityOb  = input.int(80, "Độ trong suốt OB", minval=0, maxval=100, group=grp_color)
+
+grp_pd = "═══ Premium / Discount & OTE ═══"
+showPD      = input.bool(true, "Vùng Premium / Discount", group=grp_pd)
+showOTE     = input.bool(true, "Mốc OTE (0.618 - 0.786)", group=grp_pd)
+colPremium  = input.color(color.red, "Vùng Premium", group=grp_pd)
+colDiscount = input.color(color.green, "Vùng Discount", group=grp_pd)
+opacityPD   = input.int(93, "Độ trong suốt P/D", minval=0, maxval=100, group=grp_pd)
+
+// ══════════════════════════════════════════════════════════════
+// 2. CRAZII: OP - OPENING PRICE (5h GMT+7)
+// ══════════════════════════════════════════════════════════════
 getGMT7Hour() =>
-    h = hour(time, "Asia/Bangkok")
-    h
+    hour(time, "Asia/Bangkok")
 
-// ============================================================
-// OP - OPENING PRICE AT 5AM GMT+7
-// ============================================================
 var float currentOP = na
 var float yesterdayOP = na
 var float prevSessionClose = na
 
 isNewSession = getGMT7Hour() == i_opHour and minute == 0 and (getGMT7Hour()[1] != i_opHour or minute[1] != 0)
-
 if isNewSession
     yesterdayOP := currentOP
     prevSessionClose := close[1]
     currentOP := open
 
-// MLP = (yesterday OP + yesterday close) / 2
 mlpValue = not na(yesterdayOP) and not na(prevSessionClose) ? (yesterdayOP + prevSessionClose) / 2.0 : na
 
-// Plot OP & MLP
 plot(i_showOP and not na(currentOP) ? currentOP : na, "OP", color=color.new(#fbbf24, 0), linewidth=2, style=plot.style_stepline)
 plot(i_showMLP and not na(mlpValue) ? mlpValue : na, "MLP", color=color.new(#a855f7, 20), linewidth=1, style=plot.style_stepline)
 
-// ============================================================
-// KTR - VOLATILITY LEVELS (ADR/3 from OP)
-// ============================================================
-// Calculate ADR (Average Daily Range)
+// ══════════════════════════════════════════════════════════════
+// 3. CRAZII: KTR LEVELS (ADR/3 from OP)
+// ══════════════════════════════════════════════════════════════
 adrHigh = request.security(syminfo.tickerid, "D", high)
 adrLow  = request.security(syminfo.tickerid, "D", low)
-dailyRange = adrHigh - adrLow
+adrAvg  = ta.sma(adrHigh - adrLow, i_adrPeriod)
 
-// ADR average over period
-adrAvg = ta.sma(dailyRange, i_adrPeriod)
-
-// KTR unit = ADR / 3
 var float ktrUnit = na
 if isNewSession and not na(adrAvg)
     ktrUnit := adrAvg / 3.0
 
-ktrPlus1  = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 1 : na
-ktrPlus2  = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 2 : na
-ktrPlus3  = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 3 : na
-ktrMinus1 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 1 : na
-ktrMinus2 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 2 : na
-ktrMinus3 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 3 : na
+ktrP1 = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit     : na
+ktrP2 = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 2 : na
+ktrP3 = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 3 : na
+ktrM1 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit     : na
+ktrM2 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 2 : na
+ktrM3 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 3 : na
 
-plot(i_showKTR ? ktrPlus1  : na, "KTR+1", color=color.new(#22c55e, 30), linewidth=1, style=plot.style_stepline)
-plot(i_showKTR ? ktrPlus2  : na, "KTR+2", color=color.new(#22c55e, 50), linewidth=1, style=plot.style_stepline)
-plot(i_showKTR ? ktrPlus3  : na, "KTR+3", color=color.new(#22c55e, 70), linewidth=1, style=plot.style_stepline)
-plot(i_showKTR ? ktrMinus1 : na, "KTR-1", color=color.new(#ef4444, 30), linewidth=1, style=plot.style_stepline)
-plot(i_showKTR ? ktrMinus2 : na, "KTR-2", color=color.new(#ef4444, 50), linewidth=1, style=plot.style_stepline)
-plot(i_showKTR ? ktrMinus3 : na, "KTR-3", color=color.new(#ef4444, 70), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrP1 : na, "KTR+1", color=color.new(#22c55e, 30), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrP2 : na, "KTR+2", color=color.new(#22c55e, 50), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrP3 : na, "KTR+3", color=color.new(#22c55e, 70), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrM1 : na, "KTR-1", color=color.new(#ef4444, 30), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrM2 : na, "KTR-2", color=color.new(#ef4444, 50), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrM3 : na, "KTR-3", color=color.new(#ef4444, 70), linewidth=1, style=plot.style_stepline)
 
-// ============================================================
-// HEIKEN ASHI SMOOTHED - CANDLE COLORING
-// ============================================================
-// Standard Heiken Ashi
+// ══════════════════════════════════════════════════════════════
+// 4. CRAZII: HEIKEN ASHI SMOOTHED (Nến Vàng/Đỏ)
+// ══════════════════════════════════════════════════════════════
 haClose_raw = (open + high + low + close) / 4.0
 var float haOpen_raw = na
 haOpen_raw := na(haOpen_raw[1]) ? (open + close) / 2.0 : (nz(haOpen_raw[1]) + nz(haClose_raw[1])) / 2.0
 haHigh_raw = math.max(high, haOpen_raw, haClose_raw)
 haLow_raw  = math.min(low, haOpen_raw, haClose_raw)
 
-// Smooth with EMA
 haOpen_s  = ta.ema(haOpen_raw, i_haSmooth)
 haClose_s = ta.ema(haClose_raw, i_haSmooth)
-haHigh_s  = ta.ema(haHigh_raw, i_haSmooth)
-haLow_s   = ta.ema(haLow_raw, i_haSmooth)
+haBull    = haClose_s > haOpen_s
+haColor   = haBull ? #fbbf24 : #ef4444
+barcolor(i_showHA ? haColor : na, title="HA Color")
 
-haBull = haClose_s > haOpen_s
+// ══════════════════════════════════════════════════════════════
+// 5. CRAZII: SIGNALS (Tam Điểm + CCRY/CCYR + Diamond)
+// ══════════════════════════════════════════════════════════════
+// Tam Diem BUY: 3 nến vàng tăng dần + giá > OP
+tamBuy = haBull and haBull[1] and haBull[2] and
+         haClose_s > haClose_s[1] and haClose_s[1] > haClose_s[2] and
+         not na(currentOP) and close > currentOP
 
-// Candle coloring: Yellow = Bull, Red = Bear
-haColor = haBull ? #fbbf24 : #ef4444
-barcolor(i_showHA ? haColor : na)
+// Tam Diem SELL: 3 nến đỏ giảm dần + giá < OP
+tamSell = not haBull and not haBull[1] and not haBull[2] and
+          haClose_s < haClose_s[1] and haClose_s[1] < haClose_s[2] and
+          not na(currentOP) and close < currentOP
 
-// ============================================================
-// TAM DIEM BUY/SELL SIGNALS
-// ============================================================
-// Tam Diem BUY: 3 yellow HA candles rising + price > OP + bullish momentum
-tamDiemBuy = haBull and haBull[1] and haBull[2] and
-             haClose_s > haClose_s[1] and haClose_s[1] > haClose_s[2] and
-             not na(currentOP) and close > currentOP
+plotshape(i_showTamDiem and tamBuy, "Tam Diem BUY", shape.triangleup, location.belowbar, color=#22c55e, size=size.small, text="BUY")
+plotshape(i_showTamDiem and tamSell, "Tam Diem SELL", shape.triangledown, location.abovebar, color=#ef4444, size=size.small, text="SELL")
 
-// Tam Diem SELL: 3 red HA candles falling + price < OP + bearish momentum
-tamDiemSell = not haBull and not haBull[1] and not haBull[2] and
-              haClose_s < haClose_s[1] and haClose_s[1] < haClose_s[2] and
-              not na(currentOP) and close < currentOP
-
-plotshape(i_showTamDiem and tamDiemBuy, "Tam Diem BUY", shape.triangleup, location.belowbar, color=#22c55e, size=size.small, text="BUY")
-plotshape(i_showTamDiem and tamDiemSell, "Tam Diem SELL", shape.triangledown, location.abovebar, color=#ef4444, size=size.small, text="SELL")
-
-// ============================================================
-// ENGULFING (CCRY / CCYR) + OP RULE
-// ============================================================
-// CCRY: Red to Yellow + price above OP -> BUY
+// CCRY: Đỏ → Vàng + trên OP = BUY | CCYR: Vàng → Đỏ + dưới OP = SELL
 ccry = haBull and not haBull[1] and not na(currentOP) and close > currentOP
-
-// CCYR: Yellow to Red + price below OP -> SELL
 ccyr = not haBull and haBull[1] and not na(currentOP) and close < currentOP
+plotshape(i_showEngulf and ccry, "CCRY", shape.labelup, location.belowbar, color=color.new(#3b82f6, 0), size=size.tiny, text="CCRY", textcolor=color.white)
+plotshape(i_showEngulf and ccyr, "CCYR", shape.labeldown, location.abovebar, color=color.new(#f97316, 0), size=size.tiny, text="CCYR", textcolor=color.white)
 
-plotshape(i_showEngulf and ccry, "CCRY BUY", shape.labelup, location.belowbar, color=color.new(#3b82f6, 0), size=size.tiny, text="CCRY", textcolor=color.white)
-plotshape(i_showEngulf and ccyr, "CCYR SELL", shape.labeldown, location.abovebar, color=color.new(#f97316, 0), size=size.tiny, text="CCYR", textcolor=color.white)
+// Blue Diamond: swing low + đảo chiều
+blueDiamond = low <= ta.lowest(low, 5) and close > open and haBull and not haBull[1]
+plotshape(i_showDiamond and blueDiamond, "Diamond", shape.diamond, location.belowbar, color=#00bcd4, size=size.small, text="◆")
 
-// ============================================================
-// DIAMOND DETECTION
-// Blue Diamond: swing low + color change (bear to bull)
-// ============================================================
-lookbackDiamond = 5
-lowestInLookback = ta.lowest(low, lookbackDiamond)
+// ══════════════════════════════════════════════════════════════
+// 6. SMC: EMA 200 & HVB
+// ══════════════════════════════════════════════════════════════
+ema200 = ta.ema(close, 200)
+plot(showEma200 ? ema200 : na, "EMA 200", color=colEma200, linewidth=2)
 
-blueDiamond = low <= lowestInLookback and close > open and haBull and not haBull[1]
+volEma = ta.ema(volume, 12)
+isHighVolume = volume > (hvbMultiplier * volEma)
+barcolor(showHVB and close > open and isHighVolume ? colHvbBull : na, title="HVB Bull")
+barcolor(showHVB and close < open and isHighVolume ? colHvbBear : na, title="HVB Bear")
 
-plotshape(i_showDiamond and blueDiamond, "Blue Diamond", shape.diamond, location.belowbar, color=#00bcd4, size=size.small, text="◆")
+// ══════════════════════════════════════════════════════════════
+// 7. SMC: CẤU TRÚC (BOS / CHoCH)
+// ══════════════════════════════════════════════════════════════
+get_structure_highest_bar(lb) =>
+    maxBar = bar_index > lb ? ta.highestbars(high, lb) : ta.highestbars(high, bar_index + 1)
+    idx = 0
+    for i = 0 to lb - 1
+        if high[i+1] > high[i+2] and high[i] <= high[i+1] and ((i+1) * -1) >= maxBar
+            idx := (i+1) * -1
+    idx := idx == 0 ? maxBar : idx
 
-// ============================================================
-// FVG - FAIR VALUE GAP
-// ============================================================
-// Bullish FVG: low[0] > high[2] (gap up)
-bullFVG = low > high[2]
-// Bearish FVG: high[0] < low[2] (gap down)
-bearFVG = high < low[2]
+get_structure_lowest_bar(lb) =>
+    minBar = bar_index > lb ? ta.lowestbars(low, lb) : ta.lowestbars(low, bar_index + 1)
+    idx = 0
+    for i = 0 to lb - 1
+        if low[i+1] < low[i+2] and low[i] >= low[i+1] and ((i+1) * -1) >= minBar
+            idx := (i+1) * -1
+    idx := idx == 0 ? minBar : idx
 
-var box[] fvgBoxes = array.new_box()
+var float structHigh = high
+var float structLow = low
+var int structHighIdx = bar_index
+var int structLowIdx = bar_index
+var int structDir = 0
 
-if i_showFVG and bullFVG
-    b = box.new(bar_index - 2, low, bar_index, high[2], border_color=color.new(#22c55e, 60), bgcolor=color.new(#22c55e, 88))
-    array.push(fvgBoxes, b)
+if bar_index == 0
+    structHigh := high
+    structLow := low
+    structHighIdx := bar_index
+    structLowIdx := bar_index
 
-if i_showFVG and bearFVG
-    b = box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(#ef4444, 60), bgcolor=color.new(#ef4444, 88))
-    array.push(fvgBoxes, b)
+float atr14 = ta.atr(14)
+float atrLimit = atr14 * atrFilterMult
+float max_up = ta.highest(math.max(low - high[2], 0), 200)
+float max_dn = ta.highest(math.max(low[2] - high, 0), 200)
+float oldStructHigh = structHigh
+float oldStructLow = structLow
+int oldStructHighIdx = structHighIdx
+int oldStructLowIdx = structLowIdx
 
-// Cleanup old FVG boxes
-if array.size(fvgBoxes) > i_fvgLookback
-    oldBox = array.shift(fvgBoxes)
-    box.delete(oldBox)
+structMaxBar = bar_index + get_structure_highest_bar(structLookback)
+structMinBar = bar_index + get_structure_lowest_bar(structLookback)
+lowBreak  = isStructBody ? close : low
+highBreak = isStructBody ? close : high
 
-// ============================================================
-// ORDER BLOCKS
-// ============================================================
-// Bullish OB: last bearish candle before a strong bullish move
-bullOB = close[1] < open[1] and close > open and (close - open) > (open[1] - close[1]) * 1.5 and close > high[1]
+bool isLowBroken  = lowBreak < structLow and lowBreak[1] >= structLow and bar_index[1] > structLowIdx
+bool isHighBroken = highBreak > structHigh and highBreak[1] <= structHigh and bar_index[1] > structHighIdx
 
-// Bearish OB: last bullish candle before a strong bearish move
-bearOB = close[1] > open[1] and close < open and (open - close) > (close[1] - open[1]) * 1.5 and close < low[1]
+if isLowBroken and (last_bar_index - bar_index < lookbackInput)
+    if structDir == 2
+        line.new(structLowIdx, structLow, bar_index, structLow, color=colChoch, style=line.style_solid, width=1)
+        label.new((bar_index + structLowIdx) / 2, structLow, "CHoCH", style=label.style_none, textcolor=colChoch, size=size.small)
+    else if structDir == 1
+        line.new(structLowIdx, structLow, bar_index, structLow, color=colBos, style=line.style_dashed, width=1)
+        label.new((bar_index + structLowIdx) / 2, structLow, "BOS", style=label.style_none, textcolor=colBos, size=size.small)
+    structDir := 1
+    structHighIdx := structMaxBar
+    structLowIdx := bar_index
+    structHigh := high[bar_index - structHighIdx]
+    structLow := low
+else if isHighBroken and (last_bar_index - bar_index < lookbackInput)
+    if structDir == 1
+        line.new(structHighIdx, structHigh, bar_index, structHigh, color=colChoch, style=line.style_solid, width=1)
+        label.new((bar_index + structHighIdx) / 2, structHigh, "CHoCH", style=label.style_none, textcolor=colChoch, size=size.small)
+    else if structDir == 2
+        line.new(structHighIdx, structHigh, bar_index, structHigh, color=colBos, style=line.style_dashed, width=1)
+        label.new((bar_index + structHighIdx) / 2, structHigh, "BOS", style=label.style_none, textcolor=colBos, size=size.small)
+    structDir := 2
+    structHighIdx := bar_index
+    structLowIdx := structMinBar
+    structHigh := high
+    structLow := low[bar_index - structLowIdx]
+else
+    if high > structHigh and (structDir == 0 or structDir == 2)
+        structHigh := high
+        structHighIdx := bar_index
+    else if low < structLow and (structDir == 0 or structDir == 1)
+        structLow := low
+        structLowIdx := bar_index
 
-var box[] obBoxes = array.new_box()
+// ══════════════════════════════════════════════════════════════
+// 8. SMC: FVG & ORDER BLOCKS
+// ══════════════════════════════════════════════════════════════
+var box[] bullBoxes = array.new_box()
+var box[] bearBoxes = array.new_box()
+var box[] fvgBoxes  = array.new_box()
+var float[] bullVolumes = array.new_float()
+var float[] bearVolumes = array.new_float()
+var bool[] bullTested = array.new_bool()
+var bool[] bearTested = array.new_bool()
+var bool[] bullTouchTriggered = array.new_bool()
+var bool[] bearTouchTriggered = array.new_bool()
+var label[] bullTouchLabels = array.new_label()
+var label[] bearTouchLabels = array.new_label()
 
-if i_showOB and bullOB
-    b = box.new(bar_index - 1, low[1], bar_index, high[1], border_color=color.new(#22c55e, 40), bgcolor=color.new(#22c55e, 92), border_width=2)
-    array.push(obBoxes, b)
+bool isBullGap = false
+bool isBearGap = false
+if barstate.isconfirmed and (last_bar_index - bar_index < lookbackInput)
+    isBullGap := high[2] < low and high[2] < high[1] and low[2] < low and (low - high[2]) > atrLimit
+    isBearGap := low[2] > high and low[2] > low[1] and high[2] > high and (low[2] - high) > atrLimit
 
-if i_showOB and bearOB
-    b = box.new(bar_index - 1, low[1], bar_index, high[1], border_color=color.new(#ef4444, 40), bgcolor=color.new(#ef4444, 92), border_width=2)
-    array.push(obBoxes, b)
+bool isBullOverlap = false
+if isBullGap and array.size(bullBoxes) > 0
+    box lastBull = array.get(bullBoxes, array.size(bullBoxes) - 1)
+    if high[2] <= box.get_top(lastBull) and (high[2] - atr14) >= box.get_bottom(lastBull)
+        isBullOverlap := true
 
-if array.size(obBoxes) > i_fvgLookback
-    oldOB = array.shift(obBoxes)
-    box.delete(oldOB)
+bool isBearOverlap = false
+if isBearGap and array.size(bearBoxes) > 0
+    box lastBear = array.get(bearBoxes, array.size(bearBoxes) - 1)
+    if (low[2] + atr14) <= box.get_top(lastBear) and low[2] >= box.get_bottom(lastBear)
+        isBearOverlap := true
 
-// ============================================================
-// ALERTS
-// ============================================================
-alertcondition(tamDiemBuy, "Tam Diem BUY", "CRAZII: Tam Diem BUY Signal")
-alertcondition(tamDiemSell, "Tam Diem SELL", "CRAZII: Tam Diem SELL Signal")
-alertcondition(ccry, "CCRY (Engulfing BUY)", "CRAZII: CCRY Color Change BUY")
-alertcondition(ccyr, "CCYR (Engulfing SELL)", "CRAZII: CCYR Color Change SELL")
-alertcondition(blueDiamond, "Blue Diamond", "CRAZII: Blue Diamond at Swing Low")
+bool isObUp   = close[2] < open[2] and close[1] > open[1] and close[1] > high[2]
+bool isObDown = close[2] > open[2] and close[1] < open[1] and close[1] < low[2]
 
-// ============================================================
-// INFO TABLE
-// ============================================================
-var table infoTable = table.new(position.top_right, 2, 6, bgcolor=color.new(#0f172a, 10), border_color=color.new(#334155, 50), border_width=1)
+if isBullGap and not isBullOverlap
+    float filt_up = low - high[2]
+    if showImb
+        box f1 = box.new(bar_index-1, low, bar_index+3, high[2], border_color=color.new(chart.fg_color, 100), bgcolor=color.from_gradient(filt_up, 0, max_up, color.new(colBull, math.min(opacityFvg+10, 100)), color.new(colBull, opacityFvg)), text="FVG", text_color=colBull, text_size=size.small)
+        array.push(fvgBoxes, f1)
+    box bullBox = box.new(bar_index-1, high[2], last_bar_index+15, high[2]-atr14, border_color=colBull, border_width=1, bgcolor=color.from_gradient(filt_up, 0, max_up, color.new(colBull, math.min(opacityOb+15, 100)), color.new(colBull, opacityOb)), text="MUA OB", text_size=size.small, text_color=color.white, text_halign=text.align_center)
+    array.push(bullBoxes, bullBox)
+    array.push(bullVolumes, volume + volume[1] + volume[2])
+    array.push(bullTested, false)
+    array.push(bullTouchTriggered, false)
+    array.push(bullTouchLabels, label(na))
+    if showOBFVG and isObUp
+        label.new(bar_index, low, "◆", color=color.new(color.white, 100), textcolor=colBull, style=label.style_label_up, size=size.normal)
 
+if isBearGap and not isBearOverlap
+    float filt_dn = low[2] - high
+    if showImb
+        box f2 = box.new(bar_index-1, low[2], bar_index+3, high, border_color=color.new(chart.fg_color, 100), bgcolor=color.from_gradient(filt_dn, 0, max_dn, color.new(colBear, math.min(opacityFvg+10, 100)), color.new(colBear, opacityFvg)), text="FVG", text_color=colBear, text_size=size.small)
+        array.push(fvgBoxes, f2)
+    box bearBox = box.new(bar_index-1, low[2]+atr14, last_bar_index+15, low[2], border_color=colBear, border_width=1, bgcolor=color.from_gradient(filt_dn, 0, max_dn, color.new(colBear, math.min(opacityOb+15, 100)), color.new(colBear, opacityOb)), text="BÁN OB", text_size=size.small, text_color=color.white, text_halign=text.align_center)
+    array.push(bearBoxes, bearBox)
+    array.push(bearVolumes, volume + volume[1] + volume[2])
+    array.push(bearTested, false)
+    array.push(bearTouchTriggered, false)
+    array.push(bearTouchLabels, label(na))
+    if showOBFVG and isObDown
+        label.new(bar_index, high, "◆", color=color.new(color.white, 100), textcolor=colBear, style=label.style_label_down, size=size.normal)
+
+// ══════════════════════════════════════════════════════════════
+// 9. SMC: QUÉT CHẠM CẢN & CLEANUP
+// ══════════════════════════════════════════════════════════════
+int[] bullDel = array.new_int()
+int[] bearDel = array.new_int()
+bool alertBuyTouch = false
+bool alertSellTouch = false
+
+if array.size(bullBoxes) > 0
+    for i = 0 to array.size(bullBoxes) - 1
+        box b = array.get(bullBoxes, i)
+        box.set_right(b, bar_index + 15)
+        float bt = box.get_top(b)
+        float bb = box.get_bottom(b)
+        if low <= bt and high >= bb and not isBullGap
+            if not array.get(bullTouchTriggered, i)
+                alertBuyTouch := true
+                array.set(bullTouchTriggered, i, true)
+                if showTouchAlert
+                    label l = label.new(bar_index, low, "BUY", color=colBull, textcolor=color.white, style=label.style_label_up, size=size.small)
+                    array.set(bullTouchLabels, i, l)
+        if close < bb
+            if showBroken
+                box.set_bgcolor(b, color.new(chart.fg_color, 92))
+                box.set_text(b, "THỦNG")
+            else
+                box.delete(b)
+            array.push(bullDel, i)
+        if low <= bt and low >= bb and close > bt and open > bt and showSignal and not isBullGap
+            if not array.get(bullTested, i)
+                label.new(bar_index, low, "▲", color=color.new(color.white, 100), textcolor=colBull, style=label.style_label_up, size=size.normal)
+                array.set(bullTested, i, true)
+
+if array.size(bearBoxes) > 0
+    for i = 0 to array.size(bearBoxes) - 1
+        box b = array.get(bearBoxes, i)
+        box.set_right(b, bar_index + 15)
+        float bt = box.get_top(b)
+        float bb = box.get_bottom(b)
+        if high >= bb and low <= bt and not isBearGap
+            if not array.get(bearTouchTriggered, i)
+                alertSellTouch := true
+                array.set(bearTouchTriggered, i, true)
+                if showTouchAlert
+                    label l = label.new(bar_index, high, "SELL", color=colBear, textcolor=color.white, style=label.style_label_down, size=size.small)
+                    array.set(bearTouchLabels, i, l)
+        if close > bt
+            if showBroken
+                box.set_bgcolor(b, color.new(chart.fg_color, 92))
+                box.set_text(b, "THỦNG")
+            else
+                box.delete(b)
+            array.push(bearDel, i)
+        if high >= bb and high <= bt and close < bb and open < bb and showSignal and not isBearGap
+            if not array.get(bearTested, i)
+                label.new(bar_index, high, "▼", color=color.new(color.white, 100), textcolor=colBear, style=label.style_label_down, size=size.normal)
+                array.set(bearTested, i, true)
+
+// Cleanup arrays
+if array.size(bullDel) > 0
+    for i = array.size(bullDel) - 1 to 0
+        int d = array.get(bullDel, i)
+        array.remove(bullBoxes, d)
+        array.remove(bullVolumes, d)
+        array.remove(bullTested, d)
+        array.remove(bullTouchTriggered, d)
+        array.remove(bullTouchLabels, d)
+if array.size(bearDel) > 0
+    for i = array.size(bearDel) - 1 to 0
+        int d = array.get(bearDel, i)
+        array.remove(bearBoxes, d)
+        array.remove(bearVolumes, d)
+        array.remove(bearTested, d)
+        array.remove(bearTouchTriggered, d)
+        array.remove(bearTouchLabels, d)
+if array.size(bullBoxes) > boxAmount
+    box.delete(array.shift(bullBoxes))
+    array.shift(bullVolumes)
+    array.shift(bullTested)
+    array.shift(bullTouchTriggered)
+    array.shift(bullTouchLabels)
+if array.size(bearBoxes) > boxAmount
+    box.delete(array.shift(bearBoxes))
+    array.shift(bearVolumes)
+    array.shift(bearTested)
+    array.shift(bearTouchTriggered)
+    array.shift(bearTouchLabels)
+if array.size(fvgBoxes) > 100
+    box.delete(array.shift(fvgBoxes))
+
+// ══════════════════════════════════════════════════════════════
+// 10. SMC: PREMIUM / DISCOUNT & OTE
+// ══════════════════════════════════════════════════════════════
+var box premBox = na
+var box discBox = na
+var line eqLine = na
+var label eqLabel = na
+var line line618 = na
+var label lbl618 = na
+var line line705 = na
+var label lbl705 = na
+var line line786 = na
+var label lbl786 = na
+
+if showPD
+    float rangeVal = structHigh - structLow
+    float midPrice = structHigh - (rangeVal * 0.5)
+    float p618 = structHigh - (rangeVal * 0.618)
+    float p705 = structHigh - (rangeVal * 0.705)
+    float p786 = structHigh - (rangeVal * 0.786)
+    int startIdx = math.max(math.min(structHighIdx, structLowIdx), math.max(0, bar_index - 450))
+    color c_prem = color.new(colPremium, opacityPD)
+    color c_disc = color.new(colDiscount, opacityPD)
+
+    if na(premBox)
+        premBox := box.new(startIdx, structHigh, bar_index+15, midPrice, border_color=na, bgcolor=c_prem)
+        discBox := box.new(startIdx, midPrice, bar_index+15, structLow, border_color=na, bgcolor=c_disc)
+        eqLine  := line.new(startIdx, midPrice, bar_index+15, midPrice, color=color.gray, style=line.style_dashed)
+        eqLabel := label.new(bar_index+15, midPrice, "0.5 Eq", color=color.new(color.white, 100), textcolor=color.gray, style=label.style_label_left, size=size.small)
+    else
+        box.set_lefttop(premBox, startIdx, structHigh)
+        box.set_rightbottom(premBox, bar_index+15, midPrice)
+        box.set_bgcolor(premBox, c_prem)
+        box.set_lefttop(discBox, startIdx, midPrice)
+        box.set_rightbottom(discBox, bar_index+15, structLow)
+        box.set_bgcolor(discBox, c_disc)
+        line.set_xy1(eqLine, startIdx, midPrice)
+        line.set_xy2(eqLine, bar_index+15, midPrice)
+        label.set_xy(eqLabel, bar_index+15, midPrice)
+
+    if showOTE
+        if na(line618)
+            line618 := line.new(startIdx, p618, bar_index+15, p618, color=color.new(color.blue, 30), style=line.style_dotted)
+            lbl618  := label.new(bar_index+15, p618, "0.618", color=color.new(color.white, 100), textcolor=color.blue, style=label.style_label_left, size=size.small)
+            line705 := line.new(startIdx, p705, bar_index+15, p705, color=color.new(#ff9800, 0), style=line.style_solid)
+            lbl705  := label.new(bar_index+15, p705, "0.705 OTE", color=color.new(color.white, 100), textcolor=#ff9800, style=label.style_label_left, size=size.small)
+            line786 := line.new(startIdx, p786, bar_index+15, p786, color=color.new(color.red, 30), style=line.style_dotted)
+            lbl786  := label.new(bar_index+15, p786, "0.786", color=color.new(color.white, 100), textcolor=color.red, style=label.style_label_left, size=size.small)
+        else
+            line.set_xy1(line618, startIdx, p618)
+            line.set_xy2(line618, bar_index+15, p618)
+            label.set_xy(lbl618, bar_index+15, p618)
+            line.set_xy1(line705, startIdx, p705)
+            line.set_xy2(line705, bar_index+15, p705)
+            label.set_xy(lbl705, bar_index+15, p705)
+            line.set_xy1(line786, startIdx, p786)
+            line.set_xy2(line786, bar_index+15, p786)
+            label.set_xy(lbl786, bar_index+15, p786)
+
+// ══════════════════════════════════════════════════════════════
+// 11. SMC: LIQUIDITY SWEEPS
+// ══════════════════════════════════════════════════════════════
+if showLiq and barstate.isconfirmed
+    if not isHighBroken and high > oldStructHigh and close <= oldStructHigh and bar_index > oldStructHighIdx
+        label.new(bar_index, high, "✕ LIQ", color=color.new(color.white, 100), textcolor=colLiq, style=label.style_label_down, size=size.small)
+    if not isLowBroken and low < oldStructLow and close >= oldStructLow and bar_index > oldStructLowIdx
+        label.new(bar_index, low, "✕ LIQ", color=color.new(color.white, 100), textcolor=colLiq, style=label.style_label_up, size=size.small)
+
+// ══════════════════════════════════════════════════════════════
+// 12. ALERTS
+// ══════════════════════════════════════════════════════════════
+alertcondition(tamBuy, "CRAZII: Tam Diem BUY", "🟢 Tam Diem BUY - Hội tụ đa tầng")
+alertcondition(tamSell, "CRAZII: Tam Diem SELL", "🔴 Tam Diem SELL - Hội tụ đa tầng")
+alertcondition(ccry, "CRAZII: CCRY BUY", "🔵 CCRY - Đổi màu BUY (trên OP)")
+alertcondition(ccyr, "CRAZII: CCYR SELL", "🟠 CCYR - Đổi màu SELL (dưới OP)")
+alertcondition(blueDiamond, "CRAZII: Blue Diamond", "💎 Blue Diamond - Swing Low")
+alertcondition(alertBuyTouch, "SMC: Chạm MUA OB", "🟩 Giá chạm vùng MUA Order Block")
+alertcondition(alertSellTouch, "SMC: Chạm BÁN OB", "🟥 Giá chạm vùng BÁN Order Block")
+
+// ══════════════════════════════════════════════════════════════
+// 13. INFO TABLE
+// ══════════════════════════════════════════════════════════════
+var table info = table.new(position.top_right, 2, 6, bgcolor=color.new(#0f172a, 10), border_color=color.new(#334155, 50), border_width=1)
 if barstate.islast
     opRule = not na(currentOP) ? (close > currentOP ? "BUY ✅" : "SELL ✅") : "—"
-    opColor = not na(currentOP) ? (close > currentOP ? color.green : color.red) : color.gray
-    haStatus = haBull ? "🟡 Vàng (Bull)" : "🔴 Đỏ (Bear)"
-    haCol = haBull ? #fbbf24 : #ef4444
-
-    table.cell(infoTable, 0, 0, "OP", text_color=color.gray, text_size=size.tiny)
-    table.cell(infoTable, 1, 0, not na(currentOP) ? str.tostring(currentOP, format.mintick) : "—", text_color=#fbbf24, text_size=size.tiny)
-    table.cell(infoTable, 0, 1, "MLP", text_color=color.gray, text_size=size.tiny)
-    table.cell(infoTable, 1, 1, not na(mlpValue) ? str.tostring(mlpValue, format.mintick) : "—", text_color=#a855f7, text_size=size.tiny)
-    table.cell(infoTable, 0, 2, "OP Rule", text_color=color.gray, text_size=size.tiny)
-    table.cell(infoTable, 1, 2, opRule, text_color=opColor, text_size=size.tiny)
-    table.cell(infoTable, 0, 3, "Candle", text_color=color.gray, text_size=size.tiny)
-    table.cell(infoTable, 1, 3, haStatus, text_color=haCol, text_size=size.tiny)
-    table.cell(infoTable, 0, 4, "KTR+1", text_color=color.gray, text_size=size.tiny)
-    table.cell(infoTable, 1, 4, not na(ktrPlus1) ? str.tostring(ktrPlus1, format.mintick) : "—", text_color=#22c55e, text_size=size.tiny)
-    table.cell(infoTable, 0, 5, "KTR-1", text_color=color.gray, text_size=size.tiny)
-    table.cell(infoTable, 1, 5, not na(ktrMinus1) ? str.tostring(ktrMinus1, format.mintick) : "—", text_color=#ef4444, text_size=size.tiny)
+    opCol = not na(currentOP) ? (close > currentOP ? color.green : color.red) : color.gray
+    table.cell(info, 0, 0, "OP", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 0, not na(currentOP) ? str.tostring(currentOP, format.mintick) : "—", text_color=#fbbf24, text_size=size.tiny)
+    table.cell(info, 0, 1, "MLP", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 1, not na(mlpValue) ? str.tostring(mlpValue, format.mintick) : "—", text_color=#a855f7, text_size=size.tiny)
+    table.cell(info, 0, 2, "OP Rule", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 2, opRule, text_color=opCol, text_size=size.tiny)
+    table.cell(info, 0, 3, "Nến", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 3, haBull ? "🟡 Vàng" : "🔴 Đỏ", text_color=haBull ? #fbbf24 : #ef4444, text_size=size.tiny)
+    table.cell(info, 0, 4, "KTR+1", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 4, not na(ktrP1) ? str.tostring(ktrP1, format.mintick) : "—", text_color=#22c55e, text_size=size.tiny)
+    table.cell(info, 0, 5, "KTR-1", text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 1, 5, not na(ktrM1) ? str.tostring(ktrM1, format.mintick) : "—", text_color=#ef4444, text_size=size.tiny)
