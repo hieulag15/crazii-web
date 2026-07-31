@@ -4,11 +4,12 @@ import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
 import AcademyPage from './pages/AcademyPage';
 import KeyLevelPage from './pages/KeyLevelPage';
+import CraziiPage from './pages/CraziiPage';
 import './App.css';
 
 export default function App() {
   const { isLoggedIn, loading: authLoading, logout } = useAuth();
-  const [page, setPage] = useState<'main' | 'settings' | 'academy'>('main');
+  const [page, setPage] = useState<'main' | 'settings' | 'academy' | 'crazii'>('main');
 
   if (authLoading) {
     return (
@@ -30,6 +31,10 @@ export default function App() {
     return <AcademyPage onBack={() => setPage('main')} />;
   }
 
+  if (page === 'crazii') {
+    return <CraziiPage onBack={() => setPage('main')} onLogout={logout} />;
+  }
+
   // Main page = Key Level System
-  return <KeyLevelPage onOpenAcademy={() => setPage('academy')} onOpenSettings={() => setPage('settings')} onLogout={logout} />;
+  return <KeyLevelPage onOpenAcademy={() => setPage('academy')} onOpenSettings={() => setPage('settings')} onOpenCrazii={() => setPage('crazii')} onLogout={logout} />;
 }
