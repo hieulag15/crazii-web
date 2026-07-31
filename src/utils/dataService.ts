@@ -95,61 +95,99 @@ export async function fetchDailyCandles(
 
 /**
  * WebSocket real-time
+ * Binance Futures WS cho XAUUSDT, Spot WS fallback cho các symbol khác
+ * Sử dụng combined stream format để ổn định hơn
  */
 export function connectWebSocket(
   symbol: string,
   interval: string,
   onUpdate: (candle: LiveCandle) => void
 ): WebSocket {
-  // Ưu tiên Futures WebSocket (vì trade perpetual)
-  const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`;
-
-  const ws = new WebSocket(wsUrl);
+  const stream = `${symbol.toLowerCase()}@kline_${interval}`;
+  
+  // Thử Futures combined stream trước (ổn định hơn single stream)
+  // Nếu timeout 10s không nhận data → fallback Spot
+  let ws: WebSocket;
   let isClosed = false;
+  let hasReceivedData = false;
+  let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
+  let fallbackWs: WebSocket | null = null;
 
-  ws.onopen = () => {
-    console.log('[WS] Connected:', symbol, interval);
-  };
+  function createWs(url: string, label: string): WebSocket {
+    const socket = new WebSocket(url);
 
-  ws.onmessage = (event: MessageEvent) => {
-    try {
-      const data = JSON.parse(event.data);
-      const kline = data.k;
-      if (!kline) return; // Skip invalid messages
+    socket.onopen = () => {
+      console.log(`[WS-${label}] Connected:`, symbol, interval);
+    };
 
-      onUpdate({
-        time: Math.floor(kline.t / 1000),
-        open: parseFloat(kline.o),
-        high: parseFloat(kline.h),
-        low: parseFloat(kline.l),
-        close: parseFloat(kline.c),
-        volume: parseFloat(kline.v),
-        isClosed: kline.x,
-      });
-    } catch {
-      // Skip malformed messages
+    socket.onmessage = (event: MessageEvent) => {
+      try {
+        let data = JSON.parse(event.data);
+        // Combined stream wraps data in { stream, data }
+        if (data.data) data = data.data;
+        const kline = data.k;
+        if (!kline) return;
+
+        hasReceivedData = true;
+        onUpdate({
+          time: Math.floor(kline.t / 1000),
+          open: parseFloat(kline.o),
+          high: parseFloat(kline.h),
+          low: parseFloat(kline.l),
+          close: parseFloat(kline.c),
+          volume: parseFloat(kline.v),
+          isClosed: kline.x,
+        });
+      } catch {
+        // Skip malformed messages
+      }
+    };
+
+    socket.onerror = (error) => {
+      if (!isClosed) console.error(`[WS-${label}] Error:`, error);
+    };
+
+    socket.onclose = () => {
+      if (!isClosed) {
+        console.log(`[WS-${label}] Closed, reconnecting in 5s...`);
+        setTimeout(() => {
+          if (!isClosed) {
+            connectWebSocket(symbol, interval, onUpdate);
+          }
+        }, 5000);
+      }
+    };
+
+    return socket;
+  }
+
+  // Strategy: try Spot stream directly (more reliable from browser)
+  // Binance Spot WS works well for XAUUSDT too (same kline data)
+  const spotUrl = `wss://stream.binance.com:9443/stream?streams=${stream}`;
+  const futuresUrl = `wss://fstream.binance.com/stream?streams=${stream}`;
+
+  // For XAUUSDT (Gold), use futures; others use spot
+  const primaryUrl = isFuturesSymbol(symbol) ? futuresUrl : spotUrl;
+  const fallbackUrl = isFuturesSymbol(symbol) ? spotUrl : futuresUrl;
+
+  ws = createWs(primaryUrl, 'primary');
+
+  // Fallback: if no data in 8s, try the other endpoint
+  fallbackTimeout = setTimeout(() => {
+    if (!hasReceivedData && !isClosed) {
+      console.log('[WS] No data from primary, trying fallback...');
+      fallbackWs = createWs(fallbackUrl, 'fallback');
+      // Close primary after fallback connects
+      try { ws.close(); } catch {}
     }
-  };
+  }, 8000);
 
-  ws.onerror = (error) => {
-    if (!isClosed) console.error('[WS] Error:', error);
-  };
-
-  ws.onclose = () => {
-    if (!isClosed) {
-      console.log('[WS] Closed, reconnecting in 5s...');
-      setTimeout(() => {
-        if (!isClosed) {
-          connectWebSocket(symbol, interval, onUpdate);
-        }
-      }, 5000);
-    }
-  };
-
-  // Override close to set flag
+  // Override close to set flag and cleanup
   const originalClose = ws.close.bind(ws);
   ws.close = () => {
     isClosed = true;
+    if (fallbackTimeout) clearTimeout(fallbackTimeout);
+    if (fallbackWs) try { fallbackWs.close(); } catch {}
     originalClose();
   };
 

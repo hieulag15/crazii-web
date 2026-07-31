@@ -378,6 +378,14 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
     return () => { ws.close(); };
   }, [timeframe, loadData]);
 
+  // Polling fallback: nếu WS không hoạt động, refresh mỗi 30s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
   // Active signals (filtered by confidence)
   const activeSignals = result?.enhancedSignals?.filter(s => s.confidence >= minConfidence) || [];
   const latestSignal = activeSignals.length > 0 ? activeSignals[activeSignals.length - 1] : null;
