@@ -199,24 +199,17 @@ function StatusPanel({ result, currentPrice }: { result: CraziiResult | null; cu
 }
 
 // ============================================================
-// CHART COMPONENT - Real-time update không rebuild
+// CHART COMPONENT - Real-time update qua series.update()
 // ============================================================
 function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiResult | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const csRef = useRef<any>(null);
   const volRef = useRef<any>(null);
-  const initializedRef = useRef(false);
-  const lastCandleCountRef = useRef(0);
 
-  // Effect 1: Tạo chart 1 lần
+  // Effect 1: Tạo chart instance (chỉ 1 lần khi mount)
   useEffect(() => {
-    if (!containerRef.current || candles.length === 0) return;
-
-    // Chỉ rebuild chart nếu chưa có hoặc khi cần reset
-    if (chartRef.current && initializedRef.current) return;
-
-    if (chartRef.current) { try { chartRef.current.remove(); } catch {} chartRef.current = null; }
+    if (!containerRef.current) return;
 
     const container = containerRef.current;
     const chart = createChart(container, {
@@ -228,7 +221,6 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
       timeScale: { timeVisible: true, secondsVisible: false },
     });
     chartRef.current = chart;
-    const toT = (t: number): Time => (t + GMT7_OFFSET) as unknown as Time;
 
     const cs = chart.addCandlestickSeries({
       upColor: '#22c55e', downColor: '#ef4444',
@@ -237,41 +229,48 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     csRef.current = cs;
-    cs.setData(candles.map(c => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
 
     const vol = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     volRef.current = vol;
-    vol.setData(candles.map(c => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e30' : '#ef444430' })));
 
-    lastCandleCountRef.current = candles.length;
-    initializedRef.current = true;
-
-    const handleResize = () => { if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || 500 }); };
+    const handleResize = () => { chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || 500 }); };
     window.addEventListener('resize', handleResize);
-    return () => { window.removeEventListener('resize', handleResize); try { chart.remove(); } catch {} chartRef.current = null; csRef.current = null; volRef.current = null; initializedRef.current = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candles.length > 0]);
 
-  // Effect 2: Update nến real-time (không destroy chart)
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      try { chart.remove(); } catch {}
+      chartRef.current = null;
+      csRef.current = null;
+      volRef.current = null;
+    };
+  }, []);
+
+  // Effect 2: Update candle data mỗi khi candles thay đổi
   useEffect(() => {
     if (!csRef.current || !volRef.current || candles.length === 0) return;
     const toT = (t: number): Time => (t + GMT7_OFFSET) as unknown as Time;
-    const last = candles[candles.length - 1];
 
-    // Update hoặc thêm nến mới nhất
+    // Luôn update nến cuối (polling/WS update)
+    const last = candles[candles.length - 1];
     csRef.current.update({ time: toT(last.time), open: last.open, high: last.high, low: last.low, close: last.close });
     volRef.current.update({ time: toT(last.time), value: last.volume, color: last.close > last.open ? '#22c55e30' : '#ef444430' });
-
-    // Nếu có nến mới (count tăng), setData lại toàn bộ
-    if (candles.length > lastCandleCountRef.current + 1) {
-      csRef.current.setData(candles.map((c: Candle) => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
-      volRef.current.setData(candles.map((c: Candle) => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e30' : '#ef444430' })));
-      lastCandleCountRef.current = candles.length;
-    }
   }, [candles]);
 
-  // Effect 3: Vẽ price lines + markers khi result thay đổi
+  // Effect 3: Full setData khi candles tải xong lần đầu hoặc khi timeframe đổi (length thay đổi nhiều)
+  const prevLengthRef = useRef(0);
+  useEffect(() => {
+    if (!csRef.current || !volRef.current || candles.length === 0) return;
+    // Chỉ setData khi có sự thay đổi lớn (> 5 nến khác biệt = new load)
+    if (Math.abs(candles.length - prevLengthRef.current) > 5 || prevLengthRef.current === 0) {
+      const toT = (t: number): Time => (t + GMT7_OFFSET) as unknown as Time;
+      csRef.current.setData(candles.map((c: Candle) => ({ time: toT(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
+      volRef.current.setData(candles.map((c: Candle) => ({ time: toT(c.time), value: c.volume, color: c.close > c.open ? '#22c55e30' : '#ef444430' })));
+      prevLengthRef.current = candles.length;
+    }
+  }, [candles.length]);
+
+  // Effect 4: Price lines + markers khi result thay đổi
   useEffect(() => {
     if (!csRef.current || !result) return;
     const cs = csRef.current;

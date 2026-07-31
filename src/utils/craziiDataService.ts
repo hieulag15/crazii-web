@@ -188,7 +188,7 @@ export function connectGoldWebSocket(
   // REST polling fallback khi WS bị block hoàn toàn
   function startPolling() {
     if (isClosed) return;
-    console.log('[CRAZII-POLL] WS unavailable, starting REST polling every 5s');
+    console.log('[CRAZII-POLL] WS unavailable, starting REST polling every 3s');
 
     const poll = async () => {
       if (isClosed) return;
@@ -197,7 +197,9 @@ export function connectGoldWebSocket(
         const res = await fetchBinance(url);
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
+          // Gửi nến gần nhất (đang mở)
           const last = data[data.length - 1];
+          const isCandleClosed = (last[6] as number) < Date.now(); // closeTime < now = closed
           onUpdate({
             time: Math.floor((last[0] as number) / 1000),
             open: parseFloat(last[1] as string),
@@ -205,14 +207,14 @@ export function connectGoldWebSocket(
             low: parseFloat(last[3] as string),
             close: parseFloat(last[4] as string),
             volume: parseFloat(last[5] as string),
-            isClosed: false,
+            isClosed: isCandleClosed,
           });
         }
       } catch { /* silent */ }
     };
 
     poll();
-    pollTimer = setInterval(poll, 5000);
+    pollTimer = setInterval(poll, 3000);
   }
 
   connect();
