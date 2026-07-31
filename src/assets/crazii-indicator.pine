@@ -1,0 +1,231 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © CRAZII Trading System - Dubai Smart Trading Academy
+// Version 6 - All-in-One Indicator
+
+//@version=6
+indicator("CRAZII System [OP/MLP/KTR/HA/Diamond/FVG/OB]", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+
+// ============================================================
+// INPUTS
+// ============================================================
+grp_op     = "═══ OP & MLP ═══"
+i_opHour   = input.int(5, "OP Hour (GMT+7)", minval=0, maxval=23, group=grp_op)
+i_showOP   = input.bool(true, "Show OP Line", group=grp_op)
+i_showMLP  = input.bool(true, "Show MLP Line", group=grp_op)
+
+grp_ktr    = "═══ KTR Levels ═══"
+i_showKTR  = input.bool(true, "Show KTR Levels", group=grp_ktr)
+i_adrPeriod = input.int(5, "ADR Period (days)", minval=1, maxval=30, group=grp_ktr)
+
+grp_ha     = "═══ Heiken Ashi Smoothed ═══"
+i_showHA   = input.bool(true, "Show HA Coloring", group=grp_ha)
+i_haSmooth = input.int(6, "HA Smooth Length", minval=1, maxval=20, group=grp_ha)
+
+grp_sig    = "═══ Signals ═══"
+i_showTamDiem = input.bool(true, "Show Tam Diem Signals", group=grp_sig)
+i_showEngulf  = input.bool(true, "Show Engulfing (CCRY/CCYR)", group=grp_sig)
+i_showDiamond = input.bool(true, "Show Diamond", group=grp_sig)
+
+grp_ict    = "═══ FVG & Order Blocks ═══"
+i_showFVG  = input.bool(true, "Show FVG", group=grp_ict)
+i_showOB   = input.bool(true, "Show Order Blocks", group=grp_ict)
+i_fvgLookback = input.int(50, "FVG Lookback", minval=10, maxval=200, group=grp_ict)
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+// Convert to GMT+7 hour
+getGMT7Hour() =>
+    h = hour(time, "Asia/Bangkok")
+    h
+
+// ============================================================
+// OP - OPENING PRICE AT 5AM GMT+7
+// ============================================================
+var float currentOP = na
+var float yesterdayOP = na
+var float prevSessionClose = na
+
+isNewSession = getGMT7Hour() == i_opHour and minute == 0 and (getGMT7Hour()[1] != i_opHour or minute[1] != 0)
+
+if isNewSession
+    yesterdayOP := currentOP
+    prevSessionClose := close[1]
+    currentOP := open
+
+// MLP = (yesterday OP + yesterday close) / 2
+mlpValue = not na(yesterdayOP) and not na(prevSessionClose) ? (yesterdayOP + prevSessionClose) / 2.0 : na
+
+// Plot OP & MLP
+plot(i_showOP and not na(currentOP) ? currentOP : na, "OP", color=color.new(#fbbf24, 0), linewidth=2, style=plot.style_stepline)
+plot(i_showMLP and not na(mlpValue) ? mlpValue : na, "MLP", color=color.new(#a855f7, 20), linewidth=1, style=plot.style_stepline)
+
+// ============================================================
+// KTR - VOLATILITY LEVELS (ADR/3 from OP)
+// ============================================================
+// Calculate ADR (Average Daily Range)
+adrHigh = request.security(syminfo.tickerid, "D", high)
+adrLow  = request.security(syminfo.tickerid, "D", low)
+dailyRange = adrHigh - adrLow
+
+// ADR average over period
+adrAvg = ta.sma(dailyRange, i_adrPeriod)
+
+// KTR unit = ADR / 3
+var float ktrUnit = na
+if isNewSession and not na(adrAvg)
+    ktrUnit := adrAvg / 3.0
+
+ktrPlus1  = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 1 : na
+ktrPlus2  = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 2 : na
+ktrPlus3  = not na(currentOP) and not na(ktrUnit) ? currentOP + ktrUnit * 3 : na
+ktrMinus1 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 1 : na
+ktrMinus2 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 2 : na
+ktrMinus3 = not na(currentOP) and not na(ktrUnit) ? currentOP - ktrUnit * 3 : na
+
+plot(i_showKTR ? ktrPlus1  : na, "KTR+1", color=color.new(#22c55e, 30), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrPlus2  : na, "KTR+2", color=color.new(#22c55e, 50), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrPlus3  : na, "KTR+3", color=color.new(#22c55e, 70), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrMinus1 : na, "KTR-1", color=color.new(#ef4444, 30), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrMinus2 : na, "KTR-2", color=color.new(#ef4444, 50), linewidth=1, style=plot.style_stepline)
+plot(i_showKTR ? ktrMinus3 : na, "KTR-3", color=color.new(#ef4444, 70), linewidth=1, style=plot.style_stepline)
+
+// ============================================================
+// HEIKEN ASHI SMOOTHED - CANDLE COLORING
+// ============================================================
+// Standard Heiken Ashi
+haClose_raw = (open + high + low + close) / 4.0
+var float haOpen_raw = na
+haOpen_raw := na(haOpen_raw[1]) ? (open + close) / 2.0 : (nz(haOpen_raw[1]) + nz(haClose_raw[1])) / 2.0
+haHigh_raw = math.max(high, haOpen_raw, haClose_raw)
+haLow_raw  = math.min(low, haOpen_raw, haClose_raw)
+
+// Smooth with EMA
+haOpen_s  = ta.ema(haOpen_raw, i_haSmooth)
+haClose_s = ta.ema(haClose_raw, i_haSmooth)
+haHigh_s  = ta.ema(haHigh_raw, i_haSmooth)
+haLow_s   = ta.ema(haLow_raw, i_haSmooth)
+
+haBull = haClose_s > haOpen_s
+
+// Candle coloring: Yellow = Bull, Red = Bear
+haColor = haBull ? #fbbf24 : #ef4444
+barcolor(i_showHA ? haColor : na)
+
+// ============================================================
+// TAM DIEM BUY/SELL SIGNALS
+// ============================================================
+// Tam Diem BUY: 3 yellow HA candles rising + price > OP + bullish momentum
+tamDiemBuy = haBull and haBull[1] and haBull[2] and
+             haClose_s > haClose_s[1] and haClose_s[1] > haClose_s[2] and
+             not na(currentOP) and close > currentOP
+
+// Tam Diem SELL: 3 red HA candles falling + price < OP + bearish momentum
+tamDiemSell = not haBull and not haBull[1] and not haBull[2] and
+              haClose_s < haClose_s[1] and haClose_s[1] < haClose_s[2] and
+              not na(currentOP) and close < currentOP
+
+plotshape(i_showTamDiem and tamDiemBuy, "Tam Diem BUY", shape.triangleup, location.belowbar, color=#22c55e, size=size.small, text="BUY")
+plotshape(i_showTamDiem and tamDiemSell, "Tam Diem SELL", shape.triangledown, location.abovebar, color=#ef4444, size=size.small, text="SELL")
+
+// ============================================================
+// ENGULFING (CCRY / CCYR) + OP RULE
+// ============================================================
+// CCRY: Red to Yellow + price above OP -> BUY
+ccry = haBull and not haBull[1] and not na(currentOP) and close > currentOP
+
+// CCYR: Yellow to Red + price below OP -> SELL
+ccyr = not haBull and haBull[1] and not na(currentOP) and close < currentOP
+
+plotshape(i_showEngulf and ccry, "CCRY BUY", shape.labelup, location.belowbar, color=color.new(#3b82f6, 0), size=size.tiny, text="CCRY", textcolor=color.white)
+plotshape(i_showEngulf and ccyr, "CCYR SELL", shape.labeldown, location.abovebar, color=color.new(#f97316, 0), size=size.tiny, text="CCYR", textcolor=color.white)
+
+// ============================================================
+// DIAMOND DETECTION
+// Blue Diamond: swing low + color change (bear to bull)
+// ============================================================
+lookbackDiamond = 5
+lowestInLookback = ta.lowest(low, lookbackDiamond)
+
+blueDiamond = low <= lowestInLookback and close > open and haBull and not haBull[1]
+
+plotshape(i_showDiamond and blueDiamond, "Blue Diamond", shape.diamond, location.belowbar, color=#00bcd4, size=size.small, text="◆")
+
+// ============================================================
+// FVG - FAIR VALUE GAP
+// ============================================================
+// Bullish FVG: low[0] > high[2] (gap up)
+bullFVG = low > high[2]
+// Bearish FVG: high[0] < low[2] (gap down)
+bearFVG = high < low[2]
+
+var box[] fvgBoxes = array.new_box()
+
+if i_showFVG and bullFVG
+    b = box.new(bar_index - 2, low, bar_index, high[2], border_color=color.new(#22c55e, 60), bgcolor=color.new(#22c55e, 88))
+    array.push(fvgBoxes, b)
+
+if i_showFVG and bearFVG
+    b = box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(#ef4444, 60), bgcolor=color.new(#ef4444, 88))
+    array.push(fvgBoxes, b)
+
+// Cleanup old FVG boxes
+if array.size(fvgBoxes) > i_fvgLookback
+    oldBox = array.shift(fvgBoxes)
+    box.delete(oldBox)
+
+// ============================================================
+// ORDER BLOCKS
+// ============================================================
+// Bullish OB: last bearish candle before a strong bullish move
+bullOB = close[1] < open[1] and close > open and (close - open) > (open[1] - close[1]) * 1.5 and close > high[1]
+
+// Bearish OB: last bullish candle before a strong bearish move
+bearOB = close[1] > open[1] and close < open and (open - close) > (close[1] - open[1]) * 1.5 and close < low[1]
+
+var box[] obBoxes = array.new_box()
+
+if i_showOB and bullOB
+    b = box.new(bar_index - 1, low[1], bar_index, high[1], border_color=color.new(#22c55e, 40), bgcolor=color.new(#22c55e, 92), border_width=2)
+    array.push(obBoxes, b)
+
+if i_showOB and bearOB
+    b = box.new(bar_index - 1, low[1], bar_index, high[1], border_color=color.new(#ef4444, 40), bgcolor=color.new(#ef4444, 92), border_width=2)
+    array.push(obBoxes, b)
+
+if array.size(obBoxes) > i_fvgLookback
+    oldOB = array.shift(obBoxes)
+    box.delete(oldOB)
+
+// ============================================================
+// ALERTS
+// ============================================================
+alertcondition(tamDiemBuy, "Tam Diem BUY", "CRAZII: Tam Diem BUY Signal")
+alertcondition(tamDiemSell, "Tam Diem SELL", "CRAZII: Tam Diem SELL Signal")
+alertcondition(ccry, "CCRY (Engulfing BUY)", "CRAZII: CCRY Color Change BUY")
+alertcondition(ccyr, "CCYR (Engulfing SELL)", "CRAZII: CCYR Color Change SELL")
+alertcondition(blueDiamond, "Blue Diamond", "CRAZII: Blue Diamond at Swing Low")
+
+// ============================================================
+// INFO TABLE
+// ============================================================
+var table infoTable = table.new(position.top_right, 2, 6, bgcolor=color.new(#0f172a, 10), border_color=color.new(#334155, 50), border_width=1)
+
+if barstate.islast
+    opRule = not na(currentOP) ? (close > currentOP ? "BUY ✅" : "SELL ✅") : "—"
+    opColor = not na(currentOP) ? (close > currentOP ? color.green : color.red) : color.gray
+    haStatus = haBull ? "🟡 Vàng (Bull)" : "🔴 Đỏ (Bear)"
+    haCol = haBull ? #fbbf24 : #ef4444
+
+    table.cell(infoTable, 0, 0, "OP", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 0, not na(currentOP) ? str.tostring(currentOP, format.mintick) : "—", text_color=#fbbf24, text_size=size.tiny)
+    table.cell(infoTable, 0, 1, "MLP", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 1, not na(mlpValue) ? str.tostring(mlpValue, format.mintick) : "—", text_color=#a855f7, text_size=size.tiny)
+    table.cell(infoTable, 0, 2, "OP Rule", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 2, opRule, text_color=opColor, text_size=size.tiny)
+    table.cell(infoTable, 0, 3, "Candle", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 3, haStatus, text_color=haCol, text_size=size.tiny)
+    table.cell(infoTable, 0, 4, "KTR+1", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 4, not na(ktrPlus1) ? str.tostring(ktrPlus1, format.mintick) : "—", text_color=#22c55e, text_size=size.tiny)
+    table.cell(infoTable, 0, 5, "KTR-1", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 5, not na(ktrMinus1) ? str.tostring(ktrMinus1, format.mintick) : "—", text_color=#ef4444, text_size=size.tiny)

@@ -112,9 +112,9 @@ async function calculateOffset(): Promise<number> {
 }
 
 /**
- * Real-time streaming: Binance WS + offset correction
- * Stream tick mỗi giây, trừ offset để giá ≈ OANDA
- * Offset recalc mỗi 60s
+ * Real-time: Polling Binance REST ticker mỗi 2s + offset correction
+ * WS bị ISP VN block hoàn toàn → dùng REST ticker thay thế
+ * Endpoint /ticker/price rất nhẹ (~100 bytes), không bị rate limit
  */
 export interface LiveGoldCandle extends Candle {
   isClosed: boolean;
@@ -124,109 +124,96 @@ export function connectGoldWebSocket(
   interval: string,
   onUpdate: (candle: LiveGoldCandle) => void
 ): { close: () => void } {
-  const stream = `xauusdt@kline_${interval}`;
   let isClosed = false;
-  let ws: WebSocket | null = null;
   let offset = 0;
   let offsetTimer: ReturnType<typeof setInterval> | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
-  let hasReceivedWsData = false;
+  let lastCandleTime = 0;
+  let candleOpen = 0;
+  let candleHigh = -Infinity;
+  let candleLow = Infinity;
+  let currentPrice = 0;
 
-  // Tính offset ngay
-  calculateOffset().then(o => { offset = o; });
+  // Tính interval duration (seconds)
+  const intervalSec: Record<string, number> = {
+    '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+    '1h': 3600, '4h': 14400, '1d': 86400,
+  };
+  const candleDuration = intervalSec[interval] || 300;
+
+  // Tính offset ngay khi khởi tạo
+  calculateOffset().then(o => {
+    offset = o;
+    console.log(`[CRAZII] Initial offset: ${offset.toFixed(2)}`);
+  });
 
   // Recalc offset mỗi 60s
   offsetTimer = setInterval(async () => {
-    if (!isClosed) offset = await calculateOffset();
+    if (!isClosed) {
+      offset = await calculateOffset();
+    }
   }, 60000);
 
-  function connect() {
+  // Poll giá mỗi 2s từ Binance REST ticker
+  const poll = async () => {
     if (isClosed) return;
-    ws = new WebSocket('wss://fstream.binance.com/ws');
+    try {
+      const url = `${BINANCE_FUTURES}/ticker/price?symbol=XAUUSDT`;
+      const res = await fetchBinance(url);
+      const json = await res.json();
+      const rawPrice = parseFloat(json.price);
+      currentPrice = rawPrice + offset;
 
-    ws.onopen = () => {
-      console.log('[CRAZII-WS] Connected, subscribing:', stream);
-      ws!.send(JSON.stringify({ method: 'SUBSCRIBE', params: [stream], id: 1 }));
+      // Tính candle time hiện tại
+      const now = Math.floor(Date.now() / 1000);
+      const candleTime = Math.floor(now / candleDuration) * candleDuration;
 
-      // Timeout: nếu 8s không nhận data → fallback polling
-      setTimeout(() => {
-        if (!hasReceivedWsData && !isClosed) {
-          console.warn('[CRAZII-WS] No data, falling back to polling');
-          try { ws?.close(); } catch {}
-          startPolling();
-        }
-      }, 8000);
-    };
-
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.id || data.result !== undefined) return;
-        const kline = data.k;
-        if (!kline) return;
-
-        hasReceivedWsData = true;
-        // Apply offset: giá hiển thị = Binance + offset
-        onUpdate({
-          time: Math.floor(kline.t / 1000),
-          open: parseFloat(kline.o) + offset,
-          high: parseFloat(kline.h) + offset,
-          low: parseFloat(kline.l) + offset,
-          close: parseFloat(kline.c) + offset,
-          volume: parseFloat(kline.v),
-          isClosed: kline.x,
-        });
-      } catch { /* skip */ }
-    };
-
-    ws.onerror = () => { /* silent */ };
-
-    ws.onclose = () => {
-      if (!isClosed && hasReceivedWsData) {
-        reconnectTimer = setTimeout(connect, 3000);
-      }
-    };
-  }
-
-  // Fallback polling khi WS bị block
-  function startPolling() {
-    if (isClosed) return;
-    console.log('[CRAZII-POLL] Starting REST polling 3s with offset');
-
-    const poll = async () => {
-      if (isClosed) return;
-      try {
-        const url = `${BINANCE_FUTURES}/klines?symbol=XAUUSDT&interval=${interval}&limit=2`;
-        const res = await fetchBinance(url);
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const last = data[data.length - 1];
+      // Nến mới?
+      if (candleTime !== lastCandleTime) {
+        // Nến cũ đã đóng
+        if (lastCandleTime > 0) {
           onUpdate({
-            time: Math.floor((last[0] as number) / 1000),
-            open: parseFloat(last[1] as string) + offset,
-            high: parseFloat(last[2] as string) + offset,
-            low: parseFloat(last[3] as string) + offset,
-            close: parseFloat(last[4] as string) + offset,
-            volume: parseFloat(last[5] as string),
-            isClosed: false,
+            time: lastCandleTime,
+            open: candleOpen,
+            high: candleHigh,
+            low: candleLow,
+            close: currentPrice,
+            volume: 0,
+            isClosed: true,
           });
         }
-      } catch { /* silent */ }
-    };
-    poll();
-    pollTimer = setInterval(poll, 3000);
-  }
+        // Reset cho nến mới
+        lastCandleTime = candleTime;
+        candleOpen = currentPrice;
+        candleHigh = currentPrice;
+        candleLow = currentPrice;
+      }
 
-  connect();
+      // Update nến đang mở
+      candleHigh = Math.max(candleHigh, currentPrice);
+      candleLow = Math.min(candleLow, currentPrice);
+
+      onUpdate({
+        time: candleTime,
+        open: candleOpen,
+        high: candleHigh,
+        low: candleLow,
+        close: currentPrice,
+        volume: 0,
+        isClosed: false,
+      });
+    } catch { /* silent */ }
+  };
+
+  console.log('[CRAZII-TICK] Starting price ticker polling every 2s');
+  poll();
+  pollTimer = setInterval(poll, 2000);
 
   return {
     close: () => {
       isClosed = true;
       if (offsetTimer) clearInterval(offsetTimer);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (pollTimer) clearInterval(pollTimer);
-      if (ws) { try { ws.close(); } catch {} }
     },
   };
 }
