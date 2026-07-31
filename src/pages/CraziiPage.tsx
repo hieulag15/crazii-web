@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 import type { IChartApi, Time, SeriesMarker } from 'lightweight-charts';
-import { fetchOandaGoldCandles, fetchOandaGoldDaily, startOandaGoldPolling } from '../utils/craziiDataService';
+import { fetchOandaGoldCandles, fetchOandaGoldDaily } from '../utils/craziiDataService';
 import { calculateAll, calculateADR, calculatePivot } from '../utils/craziiEngine';
 import type { Candle, CraziiResult, EnhancedSignal } from '../types/index';
 
@@ -298,12 +298,14 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [lastUpdate, setLastUpdate] = useState('');
   const [minConfidence, setMinConfidence] = useState(55);
-  const pollingRef = useRef<{ stop: () => void } | null>(null);
+  const minConfRef = useRef(minConfidence);
+  minConfRef.current = minConfidence;
 
-  const loadData = useCallback(async () => {
+  // Stable loadData: không phụ thuộc minConfidence (dùng ref)
+  const loadData = useCallback(async (tf: string) => {
     try {
       const [candleData, dailyData] = await Promise.all([
-        fetchOandaGoldCandles(timeframe, 1000),
+        fetchOandaGoldCandles(tf, 1000),
         fetchOandaGoldDaily(10),
       ]);
       if (candleData.length > 0) {
@@ -313,55 +315,42 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
         const adr = calculateADR(dailyData, 5);
         const craziiResult = calculateAll(candleData, {
           opHour: 5, ktrMultiplier: 1.0, haSmooth: 6,
-          dailyRange: adr, pivot, minConfidence,
+          dailyRange: adr, pivot, minConfidence: minConfRef.current,
         });
         setResult(craziiResult);
         setLastUpdate(new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
       }
     } catch (err) {
-      console.error('Error loading CRAZII data:', err);
+      console.error('[CRAZII] Load error:', err);
     }
     setLoading(false);
-  }, [timeframe, minConfidence]);
+  }, []);
 
-  // Initial load
-  useEffect(() => { loadData(); }, [loadData]);
-
-  // Polling real-time: refresh mỗi 10s (OANDA không có WS công khai)
+  // Initial load + khi đổi timeframe
   useEffect(() => {
-    if (pollingRef.current) pollingRef.current.stop();
+    setLoading(true);
+    loadData(timeframe);
+  }, [timeframe, loadData]);
 
-    const polling = startOandaGoldPolling(timeframe, (latestCandles) => {
-      if (latestCandles.length > 0) {
-        const latest = latestCandles[latestCandles.length - 1];
-        setCurrentPrice(latest.close);
-        // Merge latest candles vào state
-        setCandles(prev => {
-          if (prev.length === 0) return prev;
-          const copy = [...prev];
-          for (const lc of latestCandles) {
-            const idx = copy.findIndex(c => c.time === lc.time);
-            if (idx >= 0) {
-              copy[idx] = lc;
-            } else if (lc.time > copy[copy.length - 1].time) {
-              copy.push(lc);
-            }
-          }
-          return copy;
-        });
-        setLastUpdate(new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
-      }
-    }, 10000);
-
-    pollingRef.current = polling;
-    return () => { polling.stop(); };
-  }, [timeframe]);
-
-  // Re-calculate engine mỗi 30s
+  // Re-calculate khi đổi minConfidence (không fetch lại, chỉ re-run engine)
   useEffect(() => {
-    const interval = setInterval(() => { loadData(); }, 30000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+    if (candles.length === 0) return;
+    fetchOandaGoldDaily(10).then(dailyData => {
+      const pivot = calculatePivot(dailyData);
+      const adr = calculateADR(dailyData, 5);
+      const craziiResult = calculateAll(candles, {
+        opHour: 5, ktrMultiplier: 1.0, haSmooth: 6,
+        dailyRange: adr, pivot, minConfidence,
+      });
+      setResult(craziiResult);
+    });
+  }, [minConfidence, candles]);
+
+  // Polling: refresh data mỗi 30s (không rebuild layout)
+  useEffect(() => {
+    const timer = setInterval(() => { loadData(timeframe); }, 30000);
+    return () => clearInterval(timer);
+  }, [timeframe, loadData]);
 
   // Signals with outcomes
   const activeSignals = result?.enhancedSignals?.filter(s => s.confidence >= minConfidence) || [];
@@ -407,7 +396,7 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
         <span style={{ color: '#64748b', fontSize: 11, marginLeft: 8 }}>Conf:</span>
         <input type="range" min={30} max={90} value={minConfidence} onChange={e => setMinConfidence(Number(e.target.value))} style={{ width: 60 }} />
         <span style={{ color: '#fbbf24', fontSize: 11 }}>{minConfidence}%</span>
-        <button onClick={loadData} style={{ marginLeft: 'auto', background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '3px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>🔄 Refresh</button>
+        <button onClick={() => loadData(timeframe)} style={{ marginLeft: 'auto', background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '3px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>🔄 Refresh</button>
         <span style={{ fontSize: 10, color: '#22c55e' }}>FVG:{activeFVGs}</span>
         <span style={{ fontSize: 10, color: '#3b82f6' }}>OB:{activeOBs}</span>
         <span style={{ fontSize: 10, color: '#fbbf24' }}>Sig:{activeSignals.length}</span>
