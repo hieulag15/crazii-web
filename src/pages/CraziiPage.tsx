@@ -271,26 +271,33 @@ function CraziiChart({ candles, result }: { candles: Candle[]; result: CraziiRes
   }, [candles.length]);
 
   // Effect 4: Price lines + markers khi result thay đổi
+  const priceLinesRef = useRef<any[]>([]);
   useEffect(() => {
     if (!csRef.current || !result) return;
     const cs = csRef.current;
     const toT = (t: number): Time => (t + GMT7_OFFSET) as unknown as Time;
 
+    // Xóa price lines cũ
+    for (const line of priceLinesRef.current) {
+      try { cs.removePriceLine(line); } catch {}
+    }
+    priceLinesRef.current = [];
+
     // OP line
     const lastOP = result.ops[result.ops.length - 1]?.op;
-    if (lastOP) cs.createPriceLine({ price: lastOP, color: '#fbbf24', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'OP' });
+    if (lastOP) priceLinesRef.current.push(cs.createPriceLine({ price: lastOP, color: '#fbbf24', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'OP' }));
 
     // MLP line
     const lastMLP = result.mlps[result.mlps.length - 1]?.mlp;
-    if (lastMLP) cs.createPriceLine({ price: lastMLP, color: '#a855f7', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MLP' });
+    if (lastMLP) priceLinesRef.current.push(cs.createPriceLine({ price: lastMLP, color: '#a855f7', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'MLP' }));
 
     // KTR levels
     const lastKTR = result.ktrs[result.ktrs.length - 1]?.levels;
     if (lastKTR) {
-      cs.createPriceLine({ price: lastKTR.plus1, color: '#22c55e', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR+1' });
-      cs.createPriceLine({ price: lastKTR.plus2, color: '#22c55e', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR+2' });
-      cs.createPriceLine({ price: lastKTR.minus1, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR-1' });
-      cs.createPriceLine({ price: lastKTR.minus2, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR-2' });
+      priceLinesRef.current.push(cs.createPriceLine({ price: lastKTR.plus1, color: '#22c55e', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR+1' }));
+      priceLinesRef.current.push(cs.createPriceLine({ price: lastKTR.plus2, color: '#22c55e', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR+2' }));
+      priceLinesRef.current.push(cs.createPriceLine({ price: lastKTR.minus1, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'KTR-1' }));
+      priceLinesRef.current.push(cs.createPriceLine({ price: lastKTR.minus2, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'KTR-2' }));
     }
 
     // Signal markers
@@ -408,9 +415,10 @@ export default function CraziiPage({ onBack, onLogout }: CraziiPageProps) {
       });
       setResult(craziiResult);
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [minConfidence]);
 
-  // Backup polling: recalc engine mỗi 60s (phòng WS chết)
+  // Full reload mỗi 60s (recalculate tín hiệu)
   useEffect(() => {
     const timer = setInterval(() => { loadData(timeframe); }, 60000);
     return () => clearInterval(timer);
