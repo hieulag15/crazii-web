@@ -97,45 +97,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const db = await getDB();
     const col = db.collection('kl_full_scan_results');
 
-    // Fetch tất cả USDT perpetual pairs
+    // GET = Đọc kết quả scan gần nhất (không scan lại)
+    if (req.method === 'GET') {
+      const minConfidence = parseInt(req.query.minConfidence as string) || 60;
+      const limit = Math.min(parseInt(req.query.limit as string) || 30, 100);
+
+      const results = await col.find({}).toArray();
+      const filtered = results
+        .filter((doc: any) => doc.signals?.some((s: any) => s.confidence >= minConfidence))
+        .sort((a: any, b: any) => {
+          const confA = Math.max(...a.signals.map((s: any) => s.confidence));
+          const confB = Math.max(...b.signals.map((s: any) => s.confidence));
+          return confB - confA;
+        })
+        .slice(0, limit);
+
+      return res.json({ ok: true, count: filtered.length, lastScanTime: results[0]?.scanTime || null, results: filtered });
+    }
+
+    // POST = Trigger scan mới
     const allPairs = await getAllUSDTPairs();
     console.log(`[Full Scan] Found ${allPairs.length} USDT perpetual pairs`);
 
     const allResults: any[] = [];
 
-    // Process in batches to avoid rate limit
     for (let i = 0; i < allPairs.length; i += BATCH_SIZE) {
       const batch = allPairs.slice(i, i + BATCH_SIZE);
       const batchResults = await processBatch(batch);
       allResults.push(...batchResults);
 
-      // Delay between batches (trừ batch cuối)
       if (i + BATCH_SIZE < allPairs.length) {
         await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
       }
     }
 
-    // Sort by highest confidence
     allResults.sort((a, b) => {
       const confA = Math.max(...a.signals.map((s: any) => s.confidence));
       const confB = Math.max(...b.signals.map((s: any) => s.confidence));
       return confB - confA;
     });
 
-    // Clear old scan results and save new ones
     await col.deleteMany({});
     if (allResults.length > 0) {
       await col.insertMany(allResults);
     }
 
-    // Return top 30
-    const top30 = allResults.slice(0, 30);
-
     return res.json({
       ok: true,
       total: allPairs.length,
       withSignals: allResults.length,
-      results: top30,
+      results: allResults.slice(0, 30),
     });
   } catch (err) {
     console.error('[Full Scan] Error:', err);

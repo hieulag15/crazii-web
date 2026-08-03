@@ -810,7 +810,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/full-scan-results?minConfidence=60&limit=30');
+        const res = await fetch('/api/full-scan?minConfidence=60&limit=30');
         if (res.ok) {
           const data = await res.json();
           if (data.results && data.results.length > 0) {
