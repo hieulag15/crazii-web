@@ -1,6 +1,10 @@
 {
   "regions": ["sin1"],
   "functions": {
+    "api/full-scan.ts": {
+      "includeFiles": "src/**",
+      "maxDuration": 300
+    },
     "api/auto-scan.ts": {
       "includeFiles": "src/**",
       "maxDuration": 60

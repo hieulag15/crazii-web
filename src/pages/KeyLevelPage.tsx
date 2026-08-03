@@ -377,6 +377,14 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const [aiScanSummary, setAiScanSummary] = useState<string>('');
   const [aiPopup, setAiPopup] = useState<{ id: string; content: string } | null>(null);
 
+  // Full Market Scan state
+  const [fullScanResults, setFullScanResults] = useState<any[]>([]);
+  const [fullScanLoading, setFullScanLoading] = useState(false);
+  const [fullScanLastTime, setFullScanLastTime] = useState<string | null>(null);
+  const [fullScanTotal, setFullScanTotal] = useState(0);
+  const [fullScanWithSignals, setFullScanWithSignals] = useState(0);
+  const [fullScanTab, setFullScanTab] = useState<'watchlist' | 'fullscan'>('watchlist');
+
   // Load signals from MongoDB (+ cache fallback)
   const refreshJournal = useCallback(async () => {
     const all = await loadAllSignals();
@@ -798,6 +806,81 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     a.download = `kl_training_${Date.now()}.jsonl`; a.click();
   };
 
+  // Full Market Scan: load last results on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/full-scan-results?minConfidence=60&limit=30');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.results && data.results.length > 0) {
+            setFullScanResults(data.results);
+            setFullScanLastTime(data.lastScanTime);
+            setFullScanWithSignals(data.count);
+          }
+        }
+      } catch { /* silent */ }
+    })();
+  }, []);
+
+  // Full Market Scan: trigger scan
+  const handleFullScan = useCallback(async () => {
+    setFullScanLoading(true);
+    try {
+      const res = await fetch('/api/full-scan', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setFullScanResults(data.results || []);
+        setFullScanTotal(data.total || 0);
+        setFullScanWithSignals(data.withSignals || 0);
+        setFullScanLastTime(new Date().toISOString());
+      } else {
+        alert('❌ Full scan failed: ' + (await res.text()));
+      }
+    } catch (err) {
+      alert('❌ Lỗi kết nối: ' + String(err));
+    }
+    setFullScanLoading(false);
+  }, []);
+
+  // Full Market Scan: Add to Journal
+  const handleFullScanAddToJournal = useCallback((item: any, sig: any) => {
+    const sigKey = `${item.symbol}_${sig.time}_${sig.side}`;
+    if (savedSignalIds.has(sigKey)) return;
+
+    const tracked: TrackedSignal = {
+      id: `${item.symbol}_${sig.time}_${sig.side}_${Date.now()}`,
+      createdAt: Date.now(),
+      symbol: item.symbol,
+      timeframe: '4h',
+      side: sig.side,
+      entry: sig.entry,
+      sl: sig.sl,
+      tp: sig.tp1,
+      confidence: sig.confidence,
+      pattern: sig.pattern,
+      trend: item.trend,
+      volumeConfirm: sig.volumeConfirm || false,
+      nearLevelPrice: 0,
+      nearLevelType: 'unknown',
+      reason: sig.reason || `Full Scan: ${sig.pattern} @ ${item.symbol}`,
+      outcome: 'pending',
+      closedAt: null,
+      closePrice: null,
+      rAchieved: null,
+      maxFavorable: sig.entry,
+      maxAdverse: sig.entry,
+      notes: '🔍 Từ Full Market Scan',
+      tags: ['full-scan'],
+      marketContext: {
+        ema34: 0, ema89: 0, ema200: 0, volumeRatio: 0, prevCandles: [],
+      },
+    };
+    addSignal(tracked);
+    setSavedSignalIds(prev => new Set([...prev, sigKey]));
+    refreshJournal();
+  }, [savedSignalIds, refreshJournal]);
+
 
   const trendBadge = (dir: TrendDirection) => {
     const c: Record<TrendDirection, string> = { uptrend: '#22c55e', downtrend: '#ef4444', sideway: '#eab308' };
@@ -1037,6 +1120,18 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
         {/* ===== SCANNER (Dashboard) ===== */}
         {activeTab === 'scanner' && (
           <div style={S.panel}>
+            {/* Sub-tabs: Watchlist vs Full Scan */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', borderBottom: '1px solid #1e2d4a', paddingBottom: '10px' }}>
+              <button onClick={() => setFullScanTab('watchlist')} style={{ ...S.filterBtn, ...(fullScanTab === 'watchlist' ? S.filterBtnActive : {}), fontSize: '0.85rem', padding: '6px 14px' }}>
+                📡 Watchlist Scanner
+              </button>
+              <button onClick={() => setFullScanTab('fullscan')} style={{ ...S.filterBtn, ...(fullScanTab === 'fullscan' ? S.filterBtnActive : {}), fontSize: '0.85rem', padding: '6px 14px' }}>
+                🔍 Full Market Scan
+              </button>
+            </div>
+
+            {/* Watchlist Scanner (existing) */}
+            {fullScanTab === 'watchlist' && (<>
             <div style={S.scannerHeader}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1108,6 +1203,132 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                 </div>
               ))}
             </div>
+            </>)}
+
+            {/* ===== FULL MARKET SCAN ===== */}
+            {fullScanTab === 'fullscan' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <div>
+                    <span style={{ color: '#3b82f6', fontWeight: 'bold', fontSize: '0.9rem' }}>🔍 Full Market Scan (Top 200+ Coins)</span>
+                    {fullScanLastTime && (
+                      <span style={{ fontSize: '0.72rem', color: '#64748b', marginLeft: '10px' }}>
+                        Last scan: {new Date(fullScanLastTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {fullScanWithSignals > 0 && (
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                        {fullScanWithSignals} coins có signal
+                      </span>
+                    )}
+                    <button
+                      onClick={handleFullScan}
+                      disabled={fullScanLoading}
+                      style={{ ...S.primaryBtn, background: fullScanLoading ? '#1e293b' : '#1d4ed8' }}
+                    >
+                      {fullScanLoading ? '⏳ Đang scan... (3-5 phút)' : '🚀 Scan Top 200 Coins'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Loading state */}
+                {fullScanLoading && (
+                  <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '12px' }}>⏳</div>
+                    <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Đang scan tất cả coin trên Binance Futures...</p>
+                    <p style={{ color: '#64748b', fontSize: '0.78rem', marginTop: '6px' }}>Quá trình này mất khoảng 3-5 phút. Vui lòng chờ.</p>
+                    <div style={{ width: '200px', height: '4px', background: '#1e293b', borderRadius: '2px', margin: '16px auto', overflow: 'hidden' }}>
+                      <div style={{ width: '60%', height: '100%', background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', borderRadius: '2px', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Results table */}
+                {!fullScanLoading && fullScanResults.length > 0 && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid #1e2d4a' }}>
+                          <th style={{ padding: '8px 10px', textAlign: 'left', color: '#94a3b8', fontWeight: '600' }}>Symbol</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Price</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Trend</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Signal</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Conf%</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Entry</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>SL</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>TP1</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'left', color: '#94a3b8', fontWeight: '600' }}>Pattern</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fullScanResults.map((item: any) => {
+                          const topSig = item.signals[0];
+                          if (!topSig) return null;
+                          const sigKey = `${item.symbol}_${topSig.time}_${topSig.side}`;
+                          const isSaved = savedSignalIds.has(sigKey);
+                          return (
+                            <tr key={item.symbol} style={{ borderBottom: '1px solid #0f1a2e', cursor: 'pointer' }} onClick={() => { setSymbol(item.symbol); setActiveTab('chart'); }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 'bold', color: '#f1f5f9' }}>
+                                {item.symbol.replace('USDT', '')}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8' }}>
+                                ${fmtPrice(item.lastPrice)}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                {trendBadge(item.trend)}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span style={{ color: topSig.side === 'buy' ? '#22c55e' : '#ef4444', fontWeight: 'bold' }}>
+                                  {topSig.side === 'buy' ? '🟢 BUY' : '🔴 SELL'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 'bold', color: topSig.confidence >= 80 ? '#22c55e' : topSig.confidence >= 70 ? '#eab308' : '#94a3b8' }}>
+                                {topSig.confidence}%
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', color: '#e2e8f0' }}>
+                                {fmtPrice(topSig.entry)}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', color: '#ef4444' }}>
+                                {fmtPrice(topSig.sl)}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', color: '#22c55e' }}>
+                                {fmtPrice(topSig.tp1)}
+                              </td>
+                              <td style={{ padding: '8px 10px', color: '#cbd5e1', fontSize: '0.76rem' }}>
+                                {topSig.pattern}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                <button
+                                  onClick={() => handleFullScanAddToJournal(item, topSig)}
+                                  disabled={isSaved}
+                                  style={{ background: isSaved ? '#1e293b' : '#1e3a5f', border: `1px solid ${isSaved ? '#334155' : '#3b82f640'}`, color: isSaved ? '#475569' : '#93c5fd', borderRadius: '4px', padding: '3px 8px', cursor: isSaved ? 'default' : 'pointer', fontSize: '0.72rem' }}
+                                >
+                                  {isSaved ? '✅ Đã lưu' : '➕ Journal'}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {!fullScanLoading && fullScanResults.length === 0 && (
+                  <div style={S.emptyState}>
+                    <p>Chưa có dữ liệu Full Scan.</p>
+                    <p style={{ fontSize: '0.8rem', color: '#475569', marginTop: '8px' }}>
+                      Nhấn "Scan Top 200 Coins" để quét toàn bộ thị trường Binance Futures.<br/>
+                      Hệ thống sẽ tìm tất cả coin có tín hiệu Key Level trên H4.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
