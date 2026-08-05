@@ -60,6 +60,8 @@ async function processBatch(symbols: string[]): Promise<any[]> {
       if (validSignals.length === 0) return;
 
       const lastPrice = candles[candles.length - 1].close;
+      // Thời gian signal = nến hiện tại (lúc scan), không phải nến pattern gốc
+      const currentCandleTime = candles[candles.length - 1].time;
 
       results.push({
         symbol,
@@ -71,7 +73,7 @@ async function processBatch(symbols: string[]): Promise<any[]> {
           sl: sig.sl,
           tp1: sig.tp,
           pattern: sig.pattern.name,
-          time: sig.time,
+          time: currentCandleTime,
           rr: sig.rr,
           volumeConfirm: sig.volumeConfirm,
           reason: sig.reason,

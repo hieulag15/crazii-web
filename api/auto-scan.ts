@@ -300,13 +300,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // Build document để lưu (format giống client TrackedSignal)
         const lastIdx = candles.length - 1;
+        // Thời gian signal = thời gian nến HIỆN TẠI (lúc scan), KHÔNG phải nến pattern gốc
+        const signalTime = candles[lastIdx].time;
         const prevCandles = candles.slice(Math.max(0, lastIdx - 9), lastIdx + 1)
           .map(c => [c.open, c.high, c.low, c.close, c.volume]);
 
         const doc = {
           symbol,
           timeframe: '4h',
-          time: sig.time,
+          time: signalTime,
           side: sig.side,
           entry: sig.entry,
           sl: sig.sl,
