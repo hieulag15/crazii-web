@@ -542,6 +542,39 @@ export function generateSignals(
 
     if (!side || !nearLevel) continue;
 
+    // ===== NÂNG CẤP V2: Lessons from 41-trade backtest (WR 60.7%) =====
+    // Pattern thua: Harami sideway (100% SL), mọi pattern khi wick KHÔNG chạm level
+    // Pattern thắng: Engulfing tại Key Level trùng EMA (vùng hợp lưu)
+
+    // RULE 1: Block HOÀN TOÀN Harami trong sideway (data: 100% SL)
+    if (WEAK_PATTERNS.includes(pattern.type) && trend.direction === 'sideway') continue;
+
+    // RULE 2: Engulfing/Kicker trong sideway chỉ cho phép nếu gần EMA mạnh
+    if (trend.direction === 'sideway' && !WEAK_PATTERNS.includes(pattern.type)) {
+      const nearEma34 = Math.abs(price - emaData.ema34[i]) / price * 100 < 0.5;
+      const nearEma89 = Math.abs(price - emaData.ema89[i]) / price * 100 < 0.8;
+      const nearEma200 = Math.abs(price - emaData.ema200[i]) / price * 100 < 1.0;
+      // Phải gần ít nhất 1 EMA (đóng vai trò hỗ trợ/kháng cự động)
+      if (!nearEma34 && !nearEma89 && !nearEma200) continue;
+    }
+
+    // RULE 3: Wick PHẢI chạm level (bắt buộc cho mọi signal, data: lệnh thắng đều có wick touch)
+    const touchTolerance = nearLevel.price * 0.004; // 0.4% tolerance
+    const wickTouched = side === 'buy'
+      ? c.low <= nearLevel.price + touchTolerance
+      : c.high >= nearLevel.price - touchTolerance;
+    if (!wickTouched) continue; // STRICT: không chạm = không trade
+
+    // RULE 4: Vùng hợp lưu bonus (Key Level + EMA trong 1% = cực mạnh)
+    let hasConfluence = false;
+    const emaValues = [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]];
+    for (const ema of emaValues) {
+      if (Math.abs(nearLevel.price - ema) / nearLevel.price * 100 < 1.0) {
+        hasConfluence = true;
+        break;
+      }
+    }
+
     // Nguyên tắc bất biến: không Sell gần hỗ trợ, không Buy gần kháng cự
     if (side === 'sell') {
       const nearSupport = findNearestLevel(price, keyLevels, 'support', 0.5);
@@ -552,47 +585,36 @@ export function generateSignals(
       if (nearResistance) continue;
     }
 
-    // Bước xác nhận: Nến phải thực sự "chạm" vào vùng (wick touch)
-    // Kiểm tra wick đã touch level (cho phép tolerance 0.3%)
-    const touchTolerance = nearLevel.price * 0.003;
-    const wickTouched = side === 'buy'
-      ? c.low <= nearLevel.price + touchTolerance  // Wick phải chạm xuống gần support
-      : c.high >= nearLevel.price - touchTolerance; // Wick phải chạm lên gần resistance
+    // Tính confidence (V2 — dựa trên pattern thắng/thua thực tế)
+    let confidence = 50;
 
-    // Nếu key level tĩnh (strength >= 3), yêu cầu wick phải touch
-    // EMA động (strength <= 3) thì chỉ cần gần là ok
-    if (nearLevel.strength >= 4 && !wickTouched) continue;
-
-    // Tính confidence
-    let confidence = 50; // base cao hơn vì đã filter mạnh ở trên
-
-    // +15 cùng xu hướng
+    // +15 cùng xu hướng (data: win rate cao nhất khi trend đúng)
     if ((side === 'buy' && trend.direction === 'uptrend') ||
         (side === 'sell' && trend.direction === 'downtrend')) {
       confidence += 15;
     }
-    if (trend.direction === 'sideway') confidence += 5;
-    // Counter-trend penalty: Harami ngược trend → -10, Engulfing/Kicker → -5
-    // Backtest: Harami ngược trend thua nhiều, Engulfing ngược trend vẫn có thể win
-    if (isCounterTrend) {
-      confidence -= WEAK_PATTERNS.includes(pattern.type) ? 10 : 5;
-    }
+    if (trend.direction === 'sideway') confidence += 3; // sideway ít điểm hơn
 
-    // +10 Volume xác nhận (backtest: strong correlation giữa vol cao và win)
+    // Counter-trend (data: Engulfing ngược trend vẫn thắng 50%, Harami đã bị block ở trên)
+    if (isCounterTrend) confidence -= 8;
+
+    // +10 Volume xác nhận (data: strong correlation)
     const volumeConfirm = vol && vol.isHighVolume;
     if (volumeConfirm) confidence += 10;
-    if (vol && vol.isVeryHighVolume) confidence += 8; // tăng từ +5 lên +8
+    if (vol && vol.isVeryHighVolume) confidence += 8;
 
-    // +5 Level mạnh
+    // +5 Level mạnh (nhiều touches = đáng tin hơn)
     if (nearLevel.touches >= 5) confidence += 5;
     if (nearLevel.touches >= 8) confidence += 5;
 
-    // +10 Pattern cực mạnh
-    const superStrong: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker'];
-    if (superStrong.includes(pattern.type)) confidence += 10;
+    // +10 Pattern cực mạnh (data: Engulfing/Kicker win rate cao nhất)
+    if (SUPER_STRONG.includes(pattern.type)) confidence += 10;
 
-    // +5 Wick touch
-    if (wickTouched) confidence += 5;
+    // +8 Vùng hợp lưu (Key Level + EMA — data: THẮNG hầu hết khi có confluence)
+    if (hasConfluence) confidence += 8;
+
+    // +5 Wick touch (đã bắt buộc, nhưng vẫn tính vào score)
+    confidence += 5;
 
     // +3 Money flow
     if (vol && side === 'buy' && vol.moneyFlow > 0) confidence += 3;
@@ -600,8 +622,8 @@ export function generateSignals(
 
     confidence = Math.min(100, Math.max(0, confidence));
 
-    // ===== CẢI THIỆN #5: Threshold 70% =====
-    if (confidence < 70) continue;
+    // ===== CẢI THIỆN #5: Threshold 75% (V2 — chặt hơn để giảm SL) =====
+    if (confidence < 75) continue;
 
     // ===== CẢI THIỆN #2: SL = swing low/high 5 nến + buffer % (phù hợp mọi coin) =====
     const slLookback = 5;
