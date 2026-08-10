@@ -23,7 +23,8 @@ const PENDING_SCAN_LIMIT = 60;
 const HISTORY_SCAN_SIZE = 500;
 const STRATEGY_VERSION = 'crazii-v2';
 const SIGNAL_INTERVAL_SECONDS = 5 * 60;
-const FRESH_SIGNAL_MAX_AGE_SECONDS = 15 * 60;
+// CRAZII signals hiếm (Tam Điểm, DML) nên cho phép signal đến 4h trước
+const FRESH_SIGNAL_MAX_AGE_SECONDS = 4 * 60 * 60;
 let indexesReady = false;
 
 function getTDKey(): string {
@@ -277,16 +278,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
 
         // Extract signals with confidence >= 55%
-        // and only keep signals around the newest candle to avoid historical backfill.
+        // Cho phép signal trong 4h gần nhất (CRAZII Tam Điểm/DML hiếm, cần window rộng)
         const latestCandleTime = candles5m[candles5m.length - 1].time;
-        const freshFloor = Math.max(
-          latestCandleTime - SIGNAL_INTERVAL_SECONDS,
-          nowEpoch - FRESH_SIGNAL_MAX_AGE_SECONDS
-        );
+        const freshFloor = nowEpoch - FRESH_SIGNAL_MAX_AGE_SECONDS;
 
         const enhancedSignals = craziiResult.enhancedSignals
           .filter(s => s.confidence >= 55)
-          .filter(s => isRecentSignalTime(s.time))
           .filter(s => s.time >= freshFloor && s.time <= latestCandleTime)
           .filter(s => !isFutureSignalTime(s.time));
 

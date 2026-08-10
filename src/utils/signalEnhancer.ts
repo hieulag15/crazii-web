@@ -336,9 +336,18 @@ function enhanceOne(
     ob ? 'Giá trong vùng Order Block' : 'Không có OB hợp lưu');
 
   // Tính tổng điểm
-  const totalWeight = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
-  const earned = confluences.reduce((sum, c) => sum + (c.passed ? c.weight : 0), 0);
-  let confidence = Math.round((earned / totalWeight) * 100);
+  // Nếu volume = 0 (FX spot như XAU/USD), exclude KSI + KCX khỏi denominator
+  // để confidence không bị penalty do thiếu data volume
+  const hasVolume = ctx.candles.some(c => c.volume > 0);
+  const applicableWeight = hasVolume
+    ? Object.values(WEIGHTS).reduce((a, b) => a + b, 0)
+    : Object.values(WEIGHTS).reduce((a, b) => a + b, 0) - WEIGHTS.ksi - WEIGHTS.kcx;
+  const earned = confluences.reduce((sum, c) => {
+    // Nếu không có volume, bỏ qua KSI + KCX trong tính điểm
+    if (!hasVolume && (c.name === 'KSI' || c.name === 'KCX')) return sum;
+    return sum + (c.passed ? c.weight : 0);
+  }, 0);
+  let confidence = Math.round((earned / applicableWeight) * 100);
 
   // Phát hiện sideways: trừ mạnh confidence nếu thị trường đang đi ngang
   const sideways = isSideways(ctx.candles, ctx.ops, idx);
