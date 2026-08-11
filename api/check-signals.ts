@@ -1,8 +1,8 @@
 /**
  * /api/check-signals — Cron trigger mỗi 5 phút
- * 1. Chạy CRAZII engine trên XAU/USD (Twelve Data) tại nến vừa đóng
- * 2. Lưu signal mới vào MongoDB crazii_signals
- * 3. Gửi Telegram notification cho signal mới
+ * Modes:
+ *  - Default (CRAZII): Chạy CRAZII engine trên XAU/USD (Twelve Data)
+ *  - ?mode=keylevel: Chạy Key Level scan cho danh sách coin (thay thế /api/auto-scan)
  *
  * Cron-job.org gọi URL này mỗi 5 phút
  */
@@ -86,6 +86,12 @@ function formatSignalMessage(sig: EnhancedSignal): string {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Route: ?mode=keylevel → chạy Key Level auto-scan (thay thế /api/auto-scan)
+  if (req.query.mode === 'keylevel') {
+    // Import auto-scan logic inline — forward to the existing auto-scan handler
+    const { default: autoScanHandler } = await import('./auto-scan.js');
+    return autoScanHandler(req, res);
+  }
   // Bảo vệ endpoint (optional)
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {

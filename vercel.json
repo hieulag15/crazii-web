@@ -9,11 +9,11 @@
       "includeFiles": "src/**",
       "maxDuration": 60
     },
-    "api/crazii-signals.ts": {
+    "api/check-signals.ts": {
       "includeFiles": "src/**",
       "maxDuration": 60
     },
-    "api/check-signals.ts": {
+    "api/crazii-signals.ts": {
       "includeFiles": "src/**",
       "maxDuration": 60
     },
