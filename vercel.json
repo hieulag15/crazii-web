@@ -17,6 +17,10 @@
       "includeFiles": "src/**",
       "maxDuration": 60
     },
+    "api/crazii-positions.ts": {
+      "includeFiles": "src/**",
+      "maxDuration": 30
+    },
     "api/**/*.ts": {
       "includeFiles": "src/**",
       "maxDuration": 30

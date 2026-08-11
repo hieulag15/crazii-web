@@ -47,6 +47,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'showOP', 'showMLP', 'showKTR', 'showPivot', 'showDiamond', 'showEMA200',
       'showFVG', 'showOB',
       'telegramEnabled', 'telegramChatId', 'telegramMinConfidence',
+      'walletBalance', 'riskPerTrade', 'maxLossPerTrade',
     ];
     const update: Record<string, unknown> = {};
     for (const key of allowedKeys) {

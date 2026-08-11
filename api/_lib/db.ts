@@ -70,6 +70,10 @@ export interface UserSettings {
   telegramEnabled: boolean;
   telegramChatId?: string;
   telegramMinConfidence: number; // ngưỡng % để auto-gửi TG (mặc định 80)
+  // Wallet & Position Sizing
+  walletBalance: number;     // tổng số dư đầu tư (USDT)
+  riskPerTrade: number;      // % risk mỗi lệnh (mặc định 2 = 2%)
+  maxLossPerTrade: number;   // max loss tuyệt đối mỗi lệnh (USDT, mặc định 10)
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -86,4 +90,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   showOB: false,
   telegramEnabled: false,
   telegramMinConfidence: 80,
+  walletBalance: 300,
+  riskPerTrade: 2,
+  maxLossPerTrade: 10,
 };

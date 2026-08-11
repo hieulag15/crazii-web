@@ -26,6 +26,9 @@ const DEFAULT_SETTINGS: UserSettings = {
   telegramEnabled: false,
   telegramChatId: '',
   telegramMinConfidence: 80,
+  walletBalance: 300,
+  riskPerTrade: 2,
+  maxLossPerTrade: 10,
 };
 
 export default function SettingsPage({ onBack }: SettingsPageProps) {
@@ -183,6 +186,71 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
               </div>
             </>
           )}
+        </div>
+
+        {/* Wallet & Position Sizing */}
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>💼 Ví &amp; Quản lý vốn</h3>
+
+          <div style={styles.row}>
+            <label style={styles.label}>Số dư đầu tư (USDT):</label>
+            <input
+              type="number"
+              min={10}
+              step={10}
+              value={form.walletBalance ?? 300}
+              onChange={(e) => setForm((f) => ({ ...f, walletBalance: Number(e.target.value) }))}
+              style={{ ...styles.input, maxWidth: 120 }}
+            />
+          </div>
+
+          <div style={styles.row}>
+            <label style={styles.label}>
+              Risk mỗi lệnh: <b style={{ color: '#ffd700' }}>{form.riskPerTrade ?? 2}%</b>
+            </label>
+            <input
+              type="range"
+              min={0.5} max={5} step={0.5}
+              value={form.riskPerTrade ?? 2}
+              onChange={(e) => setForm((f) => ({ ...f, riskPerTrade: Number(e.target.value) }))}
+              style={styles.slider}
+            />
+          </div>
+
+          <div style={styles.row}>
+            <label style={styles.label}>Max loss mỗi lệnh (USDT):</label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={form.maxLossPerTrade ?? 10}
+              onChange={(e) => setForm((f) => ({ ...f, maxLossPerTrade: Number(e.target.value) }))}
+              style={{ ...styles.input, maxWidth: 120 }}
+            />
+          </div>
+
+          {/* Preview */}
+          <div style={{
+            marginTop: '0.75rem',
+            padding: '0.6rem 0.9rem',
+            background: '#0f1e38',
+            borderRadius: 8,
+            border: '1px solid #1e3a5f',
+            fontSize: '0.82rem',
+            color: '#94a3b8',
+            lineHeight: 1.7,
+          }}>
+            <b style={{ color: '#fbbf24' }}>📊 Preview:</b>&nbsp;
+            Với <b style={{ color: '#22c55e' }}>{form.walletBalance ?? 300}$</b> ví,
+            risk <b style={{ color: '#fbbf24' }}>{form.riskPerTrade ?? 2}%</b> = max{' '}
+            <b style={{ color: '#ef4444' }}>
+              {Math.min(
+                (form.walletBalance ?? 300) * ((form.riskPerTrade ?? 2) / 100),
+                form.maxLossPerTrade ?? 10,
+              ).toFixed(2)}$
+            </b>{' '}
+            mỗi lệnh (capped by max {form.maxLossPerTrade ?? 10}$)
+          </div>
         </div>
 
         {/* Save */}
