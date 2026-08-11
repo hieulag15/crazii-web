@@ -41,7 +41,7 @@ async function fetchTDCandles(interval: string, outputsize: number): Promise<Can
     '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1day',
   };
   const intv = tdInterval[interval] || interval;
-  const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${intv}&outputsize=${outputsize}&timezone=UTC&apikey=${key}`;
+  const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${intv}&outputsize=${outputsize}&apikey=${key}`;
 
   const res = await fetch(url);
   const json = await res.json();
@@ -49,7 +49,7 @@ async function fetchTDCandles(interval: string, outputsize: number): Promise<Can
   if (!json.values || json.values.length === 0) return [];
 
   return json.values.map((v: any) => ({
-    // datetime từ Twelve Data với &timezone=UTC là UTC thuần → parse thêm Z suffix
+    // Twelve Data trả datetime theo UTC → thêm Z để parse chính xác
     time: Math.floor(new Date(v.datetime.replace(' ', 'T') + 'Z').getTime() / 1000),
     open: parseFloat(v.open),
     high: parseFloat(v.high),
@@ -278,14 +278,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           minConfidence: 55,
         });
 
-        // Extract signals with confidence >= 55%
-        // Cho phép signal trong 4h gần nhất (CRAZII Tam Điểm/DML hiếm, cần window rộng)
+        // Extract signals với confidence >= 55%
+        // CRAZII engine scan toàn bộ candles nhưng ta chỉ muốn signal từ nến vừa đóng
+        // nến vừa đóng = index candles5m.length - 2 (index cuối = nến đang chạy, chưa đóng)
         const latestCandleTime = candles5m[candles5m.length - 1].time;
-        const freshFloor = nowEpoch - FRESH_SIGNAL_MAX_AGE_SECONDS;
+        const closedCandleTime = candles5m[candles5m.length - 2]?.time ?? latestCandleTime;
 
         const enhancedSignals = craziiResult.enhancedSignals
           .filter(s => s.confidence >= 55)
-          .filter(s => s.time >= freshFloor && s.time <= latestCandleTime)
+          // Chỉ lấy signal của nến vừa đóng (closedCandle) hoặc nến đang chạy
+          .filter(s => s.time === closedCandleTime || s.time === latestCandleTime)
           .filter(s => !isFutureSignalTime(s.time));
 
         // Get KTR levels for TP calculation

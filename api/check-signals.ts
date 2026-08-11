@@ -1,30 +1,47 @@
 /**
- * Vercel Serverless Function: /api/check-signals
- * Cron/External trigger → quét tín hiệu CRAZII → gửi Telegram cho tất cả users đã bật.
+ * /api/check-signals — Cron trigger mỗi 5 phút
+ * 1. Chạy CRAZII engine trên XAU/USD (Twelve Data) tại nến vừa đóng
+ * 2. Lưu signal mới vào MongoDB crazii_signals
+ * 3. Gửi Telegram notification cho signal mới
  *
- * Logic:
- * 1. Query tất cả users có telegramEnabled = true
- * 2. Gom danh sách symbol/timeframe unique
- * 3. Quét tín hiệu nâng cao (enhanced) cho từng cặp
- * 4. Với mỗi user: lọc tín hiệu theo telegramMinConfidence → gửi TG
- *
- * ENV:
- *  - MONGODB_URI, TELEGRAM_BOT_TOKEN
- *  - CRON_SECRET (tùy chọn, bảo vệ endpoint)
+ * Cron-job.org gọi URL này mỗi 5 phút
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getDB } from './_lib/db.js';
-import type { UserDoc } from './_lib/db.js';
-import { detectSignalsForSymbol } from './_lib/detector.js';
-import { formatEnhancedMessage } from './_lib/formatter.js';
+import { calculateAll, calculateADR, calculatePivot } from '../src/utils/craziiEngine.js';
+import type { Candle, EnhancedSignal } from '../src/types/index.js';
 
+const TD_BASE = 'https://api.twelvedata.com';
 const TELEGRAM_API = 'https://api.telegram.org';
+const STRATEGY_VERSION = 'crazii-v2';
 
-// Cache chống gửi trùng trong cùng invocation
-const sentCache = new Set<string>();
+function getTDKey(): string {
+  return process.env.TWELVEDATA_KEY || process.env.VITE_TWELVEDATA_KEY || '';
+}
 
-async function sendToChat(chatId: string, text: string): Promise<boolean> {
+async function fetchTDCandles(interval: string, outputsize: number): Promise<Candle[]> {
+  const key = getTDKey();
+  if (!key) throw new Error('Missing TWELVEDATA_KEY');
+  const tdInterval: Record<string, string> = {
+    '5m': '5min', '15m': '15min', '1h': '1h', '4h': '4h', '1d': '1day',
+  };
+  const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${tdInterval[interval] || interval}&outputsize=${outputsize}&apikey=${key}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if (json.code) throw new Error(`Twelve Data: ${json.code} ${json.message}`);
+  if (!json.values || json.values.length === 0) return [];
+  return json.values.map((v: any) => ({
+    time: Math.floor(new Date(v.datetime.replace(' ', 'T') + 'Z').getTime() / 1000),
+    open: parseFloat(v.open),
+    high: parseFloat(v.high),
+    low: parseFloat(v.low),
+    close: parseFloat(v.close),
+    volume: v.volume ? parseFloat(v.volume) : 0,
+  })).reverse();
+}
+
+async function sendTelegram(chatId: string, text: string): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return false;
   try {
@@ -38,8 +55,38 @@ async function sendToChat(chatId: string, text: string): Promise<boolean> {
   } catch { return false; }
 }
 
+function formatSignalMessage(sig: EnhancedSignal): string {
+  const isBuy = sig.side === 'buy';
+  const emoji = isBuy ? '🟢🔼' : '🔴🔽';
+  const action = isBuy ? 'BUY' : 'SELL';
+  const timeStr = new Date(sig.time * 1000).toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit',
+  });
+
+  const passed = sig.confluences.filter(c => c.passed);
+  const lines = [
+    `${emoji} <b>CRAZII SIGNAL — ${action}</b>`,
+    `━━━━━━━━━━━━━━━`,
+    `📊 <b>XAU/USD (Vàng OANDA)</b> · M5`,
+    `🎯 Loại: <b>${sig.source || sig.label}</b>`,
+    `📈 Confidence: <b>${sig.confidence}%</b> · R:R 1:${sig.rr.toFixed(1)}`,
+    `━━━━━━━━━━━━━━━`,
+    `💰 Entry: <b>${sig.entry.toFixed(2)}</b>`,
+    `🛑 SL: <b>${sig.sl.toFixed(2)}</b>`,
+    `🎯 TP1: ${sig.tp1.toFixed(2)}`,
+    `━━━━━━━━━━━━━━━`,
+    `✅ Hợp lưu (${passed.length}/${sig.confluences.length}):`,
+    ...sig.confluences.map(c => `${c.passed ? '✅' : '❌'} ${c.name}: ${c.detail}`),
+    `━━━━━━━━━━━━━━━`,
+    `🕐 ${timeStr} (GMT+7)`,
+    `⚠️ <i>Tín hiệu tự động - không phải lời khuyên đầu tư</i>`,
+  ];
+  return lines.join('\n');
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Bảo vệ endpoint
+  // Bảo vệ endpoint (optional)
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
     const auth = req.headers['authorization'];
@@ -50,150 +97,93 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const db = await getDB();
-    const users = db.collection<UserDoc>('users');
+    const col = db.collection('crazii_signals');
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const nowEpoch = Math.floor(Date.now() / 1000);
 
-    // 1. Lấy tất cả users bật Telegram
-    const tgUsers = await users.find({
-      'settings.telegramEnabled': true,
-      'settings.telegramChatId': { $exists: true, $ne: '' },
-    }).toArray();
+    // 1. Fetch data
+    const [candles5m, dailyCandles] = await Promise.all([
+      fetchTDCandles('5m', 500),
+      fetchTDCandles('1d', 10),
+    ]);
 
-    if (tgUsers.length === 0) {
-      // Fallback: gửi vào channel mặc định (env var) nếu không có user nào
-      const defaultChatId = process.env.TELEGRAM_CHAT_ID;
-      const defaultSymbols = (process.env.CRAZII_SYMBOLS || 'XAUUSDT,BTCUSDT').split(',').map(s => s.trim());
-      const timeframe = process.env.CRAZII_TIMEFRAME || '5m';
-      const minConf = Number(process.env.CRAZII_MIN_CONFIDENCE || '80');
-
-      let sent = 0;
-      for (const symbol of defaultSymbols) {
-        const detected = await detectSignalsForSymbol(symbol, timeframe, minConf);
-        for (const d of detected) {
-          const key = `default|${d.enhanced.time}|${d.enhanced.side}|${d.enhanced.label}`;
-          if (sentCache.has(key)) continue;
-          if (defaultChatId) {
-            const msg = formatEnhancedMessage(d.enhanced, symbol, timeframe);
-            const ok = await sendToChat(defaultChatId, msg);
-            if (ok) {
-              sentCache.add(key);
-              sent++;
-              try {
-                const signalsCol = db.collection('signals');
-                await signalsCol.updateOne(
-                  {
-                    symbol: symbol,
-                    timeframe: timeframe,
-                    time: d.enhanced.time,
-                    side: d.enhanced.side,
-                    type: d.enhanced.label,
-                  },
-                  {
-                    $setOnInsert: {
-                      type: d.enhanced.label,
-                      side: d.enhanced.side,
-                      symbol: symbol,
-                      timeframe: timeframe,
-                      price: d.enhanced.entry,
-                      time: d.enhanced.time,
-                      reason: d.enhanced.reason,
-                      entry: d.enhanced.entry,
-                      sl: d.enhanced.sl,
-                      tp1: d.enhanced.tp1,
-                      tp2: d.enhanced.tp2,
-                      tp3: d.enhanced.tp3,
-                      rr: d.enhanced.rr,
-                      confidence: d.enhanced.confidence,
-                      createdAt: new Date(),
-                    },
-                  },
-                  { upsert: true }
-                );
-              } catch (dbErr) {
-                console.error('[DB] Failed to save fallback signal to DB:', dbErr);
-              }
-            }
-          }
-        }
-      }
-      return res.status(200).json({ ok: true, mode: 'default', sent });
+    if (candles5m.length < 50) {
+      return res.json({ ok: true, message: 'Not enough candles', candles: candles5m.length });
     }
 
-    // 2. Gom symbol/timeframe unique
-    const pairs = new Set<string>();
-    tgUsers.forEach((u) => {
-      const s = u.settings?.symbol || 'XAUUSDT';
-      const tf = u.settings?.timeframe || '5m';
-      pairs.add(`${s}|${tf}`);
+    // 2. Tìm nến vừa đóng (index length-2 = nến đã closed, length-1 = đang chạy)
+    const closedCandle = candles5m[candles5m.length - 2];
+    const latestCandle = candles5m[candles5m.length - 1];
+
+    // 3. Chạy CRAZII engine
+    const pivot = calculatePivot(dailyCandles);
+    const adr = calculateADR(dailyCandles, 5);
+    const craziiResult = calculateAll(candles5m, {
+      opHour: 5, ktrMultiplier: 1.0, haSmooth: 6,
+      dailyRange: adr, pivot, minConfidence: 55,
     });
 
-    // 3. Quét tín hiệu cho mỗi cặp (cache kết quả)
-    const signalsByPair = new Map<string, Awaited<ReturnType<typeof detectSignalsForSymbol>>>();
-    for (const pair of pairs) {
-      const [symbol, tf] = pair.split('|');
-      const signals = await detectSignalsForSymbol(symbol, tf, 0); // lấy tất cả, lọc sau
-      signalsByPair.set(pair, signals);
-    }
+    // 4. Lấy signal tại nến vừa đóng
+    const freshSignals = craziiResult.enhancedSignals
+      .filter(s => s.confidence >= 55)
+      .filter(s => s.time === closedCandle.time || s.time === latestCandle.time)
+      .filter(s => s.time <= nowEpoch + 60);
 
-    // 4. Gửi cho từng user
-    let totalSent = 0;
-    for (const user of tgUsers) {
-      const s = user.settings?.symbol || 'XAUUSDT';
-      const tf = user.settings?.timeframe || '5m';
-      const minConf = user.settings?.telegramMinConfidence ?? 80;
-      const chatId = user.settings?.telegramChatId;
-      if (!chatId) continue;
+    const newSignals: string[] = [];
+    const sentTelegram: string[] = [];
 
-      const signals = signalsByPair.get(`${s}|${tf}`) || [];
-      const qualified = signals.filter((d) => d.enhanced.confidence >= minConf);
+    for (const sig of freshSignals) {
+      // Kiểm tra đã lưu chưa (tránh duplicate)
+      const exists = await col.findOne({ time: sig.time, side: sig.side, strategyVersion: STRATEGY_VERSION });
+      if (exists) continue;
 
-      for (const d of qualified) {
-        const key = `${chatId}|${d.enhanced.time}|${d.enhanced.side}|${d.enhanced.label}`;
-        if (sentCache.has(key)) continue;
-        const msg = formatEnhancedMessage(d.enhanced, s, tf);
-        const ok = await sendToChat(chatId, msg);
+      // TP1 = tp1 từ EnhancedSignal, SL = sl
+      // Tính SL/TP đơn giản nếu cần
+      const atrVal = Math.abs(sig.tp1 - sig.entry) / sig.rr; // risk = reward / rr
+      const sl = sig.side === 'buy' ? sig.entry - atrVal : sig.entry + atrVal;
+      const tp = sig.tp1;
+
+      // Lưu vào DB
+      const doc = {
+        time: sig.time,
+        timeVN: sig.time + 7 * 3600,
+        strategyVersion: STRATEGY_VERSION,
+        side: sig.side,
+        source: sig.source || sig.label,
+        entry: sig.entry,
+        sl: sig.sl ?? sl,
+        tp: tp,
+        rr: Math.round(sig.rr * 100) / 100,
+        confidence: sig.confidence,
+        reason: sig.reason,
+        confluences: sig.confluences,
+        outcome: 'pending',
+        createdAt: new Date(),
+        sentTelegram: false,
+      };
+      await col.insertOne(doc);
+      newSignals.push(`${sig.side.toUpperCase()} @ ${sig.entry.toFixed(2)} (${sig.confidence}%)`);
+
+      // 5. Gửi Telegram
+      if (chatId) {
+        const msg = formatSignalMessage(sig);
+        const ok = await sendTelegram(chatId, msg);
         if (ok) {
-          sentCache.add(key);
-          totalSent++;
-          try {
-            const signalsCol = db.collection('signals');
-            await signalsCol.updateOne(
-              {
-                symbol: s,
-                timeframe: tf,
-                time: d.enhanced.time,
-                side: d.enhanced.side,
-                type: d.enhanced.label,
-              },
-              {
-                $setOnInsert: {
-                  type: d.enhanced.label,
-                  side: d.enhanced.side,
-                  symbol: s,
-                  timeframe: tf,
-                  price: d.enhanced.entry,
-                  time: d.enhanced.time,
-                  reason: d.enhanced.reason,
-                  entry: d.enhanced.entry,
-                  sl: d.enhanced.sl,
-                  tp1: d.enhanced.tp1,
-                  tp2: d.enhanced.tp2,
-                  tp3: d.enhanced.tp3,
-                  rr: d.enhanced.rr,
-                  confidence: d.enhanced.confidence,
-                  createdAt: new Date(),
-                },
-              },
-              { upsert: true }
-            );
-          } catch (dbErr) {
-            console.error('[DB] Failed to save user signal to DB:', dbErr);
-          }
+          await col.updateOne({ time: sig.time, side: sig.side, strategyVersion: STRATEGY_VERSION }, { $set: { sentTelegram: true } });
+          sentTelegram.push(`${sig.side.toUpperCase()} @ ${sig.entry.toFixed(2)}`);
         }
       }
     }
 
-    return res.status(200).json({ ok: true, mode: 'users', userCount: tgUsers.length, sent: totalSent });
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : 'Unknown' });
+    return res.json({
+      ok: true,
+      scannedCandle: new Date(closedCandle.time * 1000).toISOString(),
+      newSignals,
+      sentTelegram,
+      totalFreshSignals: freshSignals.length,
+    });
+  } catch (err: any) {
+    console.error('[check-signals]', err);
+    return res.status(500).json({ ok: false, error: err.message || String(err) });
   }
 }
