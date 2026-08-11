@@ -42,7 +42,7 @@ export async function fetchOandaGoldCandles(
   const tdInterval = TD_INTERVALS[interval] || '5min';
   const outputsize = Math.min(limit, 800);
   try {
-    const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${tdInterval}&outputsize=${outputsize}&apikey=${TD_KEY}`;
+    const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${tdInterval}&outputsize=${outputsize}&timezone=UTC&apikey=${TD_KEY}`;
     const res = await fetch(url);
     const json = await res.json();
     if (json.code) {
@@ -51,7 +51,8 @@ export async function fetchOandaGoldCandles(
     }
     if (json.values && json.values.length > 0) {
       const candles: Candle[] = json.values.map((v: any) => ({
-        time: Math.floor(new Date(v.datetime + ' GMT').getTime() / 1000),
+        // &timezone=UTC → datetime là UTC thuần → thêm Z để parse đúng
+        time: Math.floor(new Date(v.datetime.replace(' ', 'T') + 'Z').getTime() / 1000),
         open: parseFloat(v.open),
         high: parseFloat(v.high),
         low: parseFloat(v.low),

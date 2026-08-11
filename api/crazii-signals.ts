@@ -41,7 +41,7 @@ async function fetchTDCandles(interval: string, outputsize: number): Promise<Can
     '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1day',
   };
   const intv = tdInterval[interval] || interval;
-  const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${intv}&outputsize=${outputsize}&apikey=${key}`;
+  const url = `${TD_BASE}/time_series?symbol=XAU/USD&interval=${intv}&outputsize=${outputsize}&timezone=UTC&apikey=${key}`;
 
   const res = await fetch(url);
   const json = await res.json();
@@ -49,7 +49,8 @@ async function fetchTDCandles(interval: string, outputsize: number): Promise<Can
   if (!json.values || json.values.length === 0) return [];
 
   return json.values.map((v: any) => ({
-    time: Math.floor(new Date(v.datetime + ' GMT').getTime() / 1000),
+    // datetime từ Twelve Data với &timezone=UTC là UTC thuần → parse thêm Z suffix
+    time: Math.floor(new Date(v.datetime.replace(' ', 'T') + 'Z').getTime() / 1000),
     open: parseFloat(v.open),
     high: parseFloat(v.high),
     low: parseFloat(v.low),
