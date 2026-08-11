@@ -6,7 +6,7 @@
  * - 📓 Journal: Lịch sử + auto-track TP/SL + analytics + export
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 import type { IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData, SeriesMarker, Time } from 'lightweight-charts';
 import { fetchCandles, connectWebSocket } from '../utils/dataService';
@@ -246,7 +246,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     } catch { return null; }
   })();
 
-  const [activeTab, setActiveTab] = useState<'chart' | 'scanner' | 'signals' | 'journal'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'scanner' | 'signals' | 'journal' | 'mypositions'>('chart');
   const [symbol, setSymbol] = useState(savedSettings?.symbol || 'BTCUSDT');
   const [timeframe, setTimeframe] = useState(savedSettings?.timeframe || '1h');
   const [result, setResult] = useState<KeyLevelResult | null>(null);
@@ -456,6 +456,76 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   // Manual check TP/SL (thay thế auto-track 30s)
   const [checking, setChecking] = useState(false);
   const [liveProgress, setLiveProgress] = useState<Record<string, { price: number; pnlPct: number; progressToTP: number; progressToSL: number }>>({});
+
+  // Real-time price map: symbol → currentPrice (cập nhật từ WebSocket/polling)
+  const livePricesRef = useRef<Record<string, number>>({});
+  const wsMapRef = useRef<Record<string, WebSocket>>({});
+
+  // Theo dõi danh sách symbol đang có pending signal
+  const pendingSymbols = useMemo(() => {
+    const syms = trackedSignals.filter(s => s.outcome === 'pending').map(s => s.symbol);
+    return [...new Set(syms)];
+  }, [trackedSignals]);
+
+  // Mở WebSocket cho từng symbol pending — real-time price tracking
+  useEffect(() => {
+    const existing = new Set(Object.keys(wsMapRef.current));
+    const needed = new Set(pendingSymbols);
+
+    // Đóng WS cho symbol không còn cần
+    for (const sym of existing) {
+      if (!needed.has(sym)) {
+        wsMapRef.current[sym]?.close();
+        delete wsMapRef.current[sym];
+        delete livePricesRef.current[sym];
+      }
+    }
+
+    // Mở WS mới cho symbol mới
+    for (const sym of pendingSymbols) {
+      if (wsMapRef.current[sym]) continue; // đã có
+      const ws = connectWebSocket(sym, '1m', (liveCandle: LiveCandle) => {
+        const price = liveCandle.close;
+        livePricesRef.current[sym] = price;
+
+        // Cập nhật progress cho tất cả pending signals của symbol này
+        setLiveProgress(prev => {
+          const next = { ...prev };
+          const sigList = getAllSignals().filter(s => s.symbol === sym && s.outcome === 'pending');
+          for (const sig of sigList) {
+            const pnlPct = sig.side === 'buy'
+              ? ((price - sig.entry) / sig.entry) * 100
+              : ((sig.entry - price) / sig.entry) * 100;
+            const totalToTP = Math.abs(sig.tp - sig.entry);
+            const totalToSL = Math.abs(sig.sl - sig.entry);
+            const currentMove = sig.side === 'buy' ? price - sig.entry : sig.entry - price;
+            const progressToTP = Math.min(100, Math.max(0, (currentMove / totalToTP) * 100));
+            const progressToSL = currentMove < 0 ? Math.min(100, Math.max(0, (Math.abs(currentMove) / totalToSL) * 100)) : 0;
+            next[sig.id] = { price, pnlPct, progressToTP, progressToSL };
+
+            // Auto-detect TP/SL hit
+            if (sig.side === 'buy') {
+              if (price >= sig.tp) { updateSignal(sig.id, { outcome: 'tp', closedAt: Date.now(), closePrice: sig.tp, rAchieved: Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl) }); refreshJournal(); }
+              else if (price <= sig.sl) { updateSignal(sig.id, { outcome: 'sl', closedAt: Date.now(), closePrice: sig.sl, rAchieved: -1 }); refreshJournal(); }
+            } else {
+              if (price <= sig.tp) { updateSignal(sig.id, { outcome: 'tp', closedAt: Date.now(), closePrice: sig.tp, rAchieved: Math.abs(sig.entry - sig.tp) / Math.abs(sig.sl - sig.entry) }); refreshJournal(); }
+              else if (price >= sig.sl) { updateSignal(sig.id, { outcome: 'sl', closedAt: Date.now(), closePrice: sig.sl, rAchieved: -1 }); refreshJournal(); }
+            }
+          }
+          return next;
+        });
+      });
+      wsMapRef.current[sym] = ws;
+    }
+
+    return () => {
+      // Cleanup tất cả WS khi component unmount
+      for (const ws of Object.values(wsMapRef.current)) { ws.close(); }
+      wsMapRef.current = {};
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSymbols.join(',')]);
+
 
   const handleCheckTPSL = useCallback(async () => {
     setChecking(true);
@@ -959,6 +1029,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           <button onClick={() => setActiveTab('signals')} style={{ ...S.tabBtn, ...(activeTab === 'signals' ? S.tabActive : {}) }}>🎯 Tín hiệu ({result?.signals.length ?? 0})</button>
           <button onClick={() => { setActiveTab('journal'); refreshJournal(); }} style={{ ...S.tabBtn, ...(activeTab === 'journal' ? S.tabActiveJournal : {}) }}>
             📓 Journal ({trackedSignals.length})
+          </button>
+          <button onClick={() => { setActiveTab('mypositions'); }} style={{ ...S.tabBtn, ...(activeTab === 'mypositions' ? { ...S.tabActiveJournal, borderColor: '#a855f7', color: '#a855f7' } : {}) }}>
+            💼 Lệnh của tôi ({trackedSignals.filter(s => s.outcome === 'pending').length})
           </button>
         </div>
       </div>
@@ -1652,6 +1725,99 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
             }
           </div>
         )}
+
+        {/* ===== LỆNH CỦA TÔI ===== */}
+        {activeTab === 'mypositions' && (() => {
+          // Chỉ hiển thị signal pending (đang chờ) - là những lệnh user đang theo dõi
+          const myPositions = trackedSignals.filter(s => s.outcome === 'pending');
+          return (
+            <div style={S.panel}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontSize: '0.9rem', color: '#a855f7', fontWeight: 700 }}>
+                  💼 Lệnh đang theo dõi ({myPositions.length})
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  Real-time từ Binance WebSocket
+                </span>
+              </div>
+
+              {myPositions.length === 0 ? (
+                <div style={S.emptyState}>
+                  Chưa có lệnh pending. Vào tab Journal và để lệnh ở trạng thái "Đang chờ".
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {myPositions.map(sig => {
+                    const p = liveProgress[sig.id];
+                    const isBuy = sig.side === 'buy';
+                    const borderColor = isBuy ? '#22c55e' : '#ef4444';
+                    const isProfit = p ? p.pnlPct >= 0 : false;
+
+                    return (
+                      <div key={sig.id} style={{ background: '#0a1628', border: `1px solid ${borderColor}40`, borderLeft: `4px solid ${borderColor}`, borderRadius: 8, padding: '12px 14px' }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ color: borderColor, fontWeight: 700 }}>{isBuy ? '🟢' : '🔴'} {sig.side.toUpperCase()}</span>
+                            <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{sig.symbol}</span>
+                            <span style={{ color: '#64748b', fontSize: '0.8rem' }}>{sig.timeframe} · {sig.pattern}</span>
+                            <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Conf: {sig.confidence}%</span>
+                          </div>
+                          {p && (
+                            <span style={{ fontSize: '1rem', fontWeight: 700, color: isProfit ? '#22c55e' : '#ef4444' }}>
+                              {isProfit ? '+' : ''}{p.pnlPct.toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Price levels */}
+                        <div style={{ display: 'flex', gap: 16, fontSize: '0.82rem', marginBottom: 8 }}>
+                          <span>Entry: <b style={{ color: '#e2e8f0' }}>{fmtPrice(sig.entry)}</b></span>
+                          <span>SL: <b style={{ color: '#ef4444' }}>{fmtPrice(sig.sl)}</b></span>
+                          <span>TP: <b style={{ color: '#22c55e' }}>{fmtPrice(sig.tp)}</b></span>
+                          {p && <span>Giá: <b style={{ color: '#fbbf24' }}>{fmtPrice(p.price)}</b></span>}
+                        </div>
+
+                        {/* Progress bar - real-time */}
+                        {p ? (
+                          <div style={{ padding: '8px 0 2px' }}>
+                            <div style={{ position: 'relative', height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
+                              {p.progressToSL > 0 && (
+                                <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${p.progressToSL}%`, background: '#ef4444', transition: 'width 0.5s ease' }} />
+                              )}
+                              {p.progressToTP > 0 && (
+                                <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: `${p.progressToTP}%`, background: '#22c55e', transition: 'width 0.5s ease' }} />
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginTop: 3 }}>
+                              <span style={{ color: '#ef4444' }}>SL {p.progressToSL.toFixed(0)}%</span>
+                              <span style={{ color: '#64748b' }}>🎯 {fmtDate(sig.createdAt)}</span>
+                              <span style={{ color: '#22c55e' }}>TP {p.progressToTP.toFixed(0)}%</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.75rem', color: '#475569', padding: '4px 0' }}>
+                            ⏳ Đang chờ price feed từ Binance WS...
+                          </div>
+                        )}
+
+                        {/* Quick actions */}
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                          <button onClick={() => { updateSignal(sig.id, { outcome: 'tp', closedAt: Date.now(), closePrice: sig.tp, rAchieved: Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl) }); refreshJournal(); }}
+                            style={{ ...S.outcomeBtn, background: '#22c55e20', color: '#22c55e', borderColor: '#22c55e40', fontSize: '0.78rem' }}>✅ TP</button>
+                          <button onClick={() => { updateSignal(sig.id, { outcome: 'sl', closedAt: Date.now(), closePrice: sig.sl, rAchieved: -1 }); refreshJournal(); }}
+                            style={{ ...S.outcomeBtn, background: '#ef444420', color: '#ef4444', borderColor: '#ef444440', fontSize: '0.78rem' }}>❌ SL</button>
+                          <button onClick={() => setActiveTab('journal')}
+                            style={{ ...S.outcomeBtn, background: '#a855f720', color: '#a855f7', borderColor: '#a855f740', fontSize: '0.78rem' }}>📓 Chi tiết</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* AI Popup */}
