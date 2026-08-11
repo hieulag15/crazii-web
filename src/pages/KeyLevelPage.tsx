@@ -461,9 +461,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const livePricesRef = useRef<Record<string, number>>({});
   const wsMapRef = useRef<Record<string, WebSocket>>({});
 
-  // Theo dõi danh sách symbol đang có pending signal
+  // Theo dõi danh sách symbol đang được pin vào "Lệnh của tôi"
   const pendingSymbols = useMemo(() => {
-    const syms = trackedSignals.filter(s => s.outcome === 'pending').map(s => s.symbol);
+    const syms = trackedSignals.filter(s => (s as any).inMyPositions).map(s => s.symbol);
     return [...new Set(syms)];
   }, [trackedSignals]);
 
@@ -491,7 +491,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
         // Cập nhật progress cho tất cả pending signals của symbol này
         setLiveProgress(prev => {
           const next = { ...prev };
-          const sigList = getAllSignals().filter(s => s.symbol === sym && s.outcome === 'pending');
+          const sigList = getAllSignals().filter(s => s.symbol === sym && (s as any).inMyPositions);
           for (const sig of sigList) {
             const pnlPct = sig.side === 'buy'
               ? ((price - sig.entry) / sig.entry) * 100
@@ -1031,7 +1031,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
             📓 Journal ({trackedSignals.length})
           </button>
           <button onClick={() => { setActiveTab('mypositions'); }} style={{ ...S.tabBtn, ...(activeTab === 'mypositions' ? { ...S.tabActiveJournal, borderColor: '#a855f7', color: '#a855f7' } : {}) }}>
-            💼 Lệnh của tôi ({trackedSignals.filter(s => s.outcome === 'pending').length})
+            💼 Lệnh của tôi ({trackedSignals.filter(s => (s as any).inMyPositions).length})
           </button>
         </div>
       </div>
@@ -1595,6 +1595,15 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                             <button onClick={() => { updateSignal(sig.id, { outcome: 'pending', closedAt: null, closePrice: null, rAchieved: null }); refreshJournal(); }}
                               style={{ ...S.outcomeBtn, background: '#eab30820', color: '#eab308', borderColor: '#eab30840' }}>↩️ Pending</button>
                           )}
+                          {/* Thêm/bỏ khỏi "Lệnh của tôi" */}
+                          {sig.outcome === 'pending' && (
+                            <button
+                              onClick={() => { updateSignal(sig.id, { inMyPositions: !(sig as any).inMyPositions }); refreshJournal(); }}
+                              title={(sig as any).inMyPositions ? 'Bỏ khỏi Lệnh của tôi' : 'Thêm vào Lệnh của tôi'}
+                              style={{ ...S.outcomeBtn, background: (sig as any).inMyPositions ? '#a855f730' : '#1e293b', color: (sig as any).inMyPositions ? '#a855f7' : '#64748b', borderColor: (sig as any).inMyPositions ? '#a855f740' : '#334155' }}>
+                              {(sig as any).inMyPositions ? '📌 Đang theo dõi' : '📌 Theo dõi'}
+                            </button>
+                          )}
                           <button onClick={() => handleStartEdit(sig)} style={S.editBtn}>✏️</button>
                           {sig.outcome !== 'pending' && (
                             <button onClick={() => handleAIPostMortem(sig)} disabled={!!aiAnalysis[sig.id] || aiLoading === sig.id}
@@ -1728,8 +1737,8 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
         {/* ===== LỆNH CỦA TÔI ===== */}
         {activeTab === 'mypositions' && (() => {
-          // Chỉ hiển thị signal pending (đang chờ) - là những lệnh user đang theo dõi
-          const myPositions = trackedSignals.filter(s => s.outcome === 'pending');
+          // Chỉ hiển thị signal user đã đánh dấu "Theo dõi"
+          const myPositions = trackedSignals.filter(s => (s as any).inMyPositions);
           return (
             <div style={S.panel}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -1743,7 +1752,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
               {myPositions.length === 0 ? (
                 <div style={S.emptyState}>
-                  Chưa có lệnh pending. Vào tab Journal và để lệnh ở trạng thái "Đang chờ".
+                  Chưa có lệnh nào. Vào tab Journal, tìm lệnh đang chờ và nhấn 📌 Theo dõi để thêm vào đây.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

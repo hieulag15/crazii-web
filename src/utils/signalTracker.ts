@@ -9,6 +9,7 @@ export type SignalOutcome = 'pending' | 'tp' | 'sl' | 'partial' | 'breakeven' | 
 export interface TrackedSignal {
   id: string;
   createdAt: number;
+  inMyPositions?: boolean; // user đánh dấu "Theo dõi trong Lệnh của tôi"
   symbol: string;
   timeframe: string;
   side: 'buy' | 'sell';
