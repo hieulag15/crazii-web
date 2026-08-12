@@ -30,12 +30,6 @@
       "maxDuration": 30
     }
   },
-  "crons": [
-    {
-      "path": "/api/narrative-scan",
-      "schedule": "0 */4 * * *"
-    }
-  ],
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
