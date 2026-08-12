@@ -558,22 +558,29 @@ export function generateSignals(
       if (!nearEma34 && !nearEma89 && !nearEma200) continue;
     }
 
-    // RULE 3: Wick PHẢI chạm level (bắt buộc cho mọi signal, data: lệnh thắng đều có wick touch)
-    const touchTolerance = nearLevel.price * 0.004; // 0.4% tolerance
+    // RULE 3: Wick PHẢI chạm level — tolerance nghiêm ngặt hơn
+    // Data: 71% lệnh thua do wick không chạm level
+    // Key Level tĩnh: tolerance 0.2% (chặt)
+    // EMA động: tolerance 0.5% (nới hơn vì EMA di chuyển)
+    const isEmaLevel = nearLevel.strength <= 3; // EMA-based level có strength thấp hơn
+    const touchTolerance = nearLevel.price * (isEmaLevel ? 0.005 : 0.002);
     const wickTouched = side === 'buy'
       ? c.low <= nearLevel.price + touchTolerance
       : c.high >= nearLevel.price - touchTolerance;
     if (!wickTouched) continue; // STRICT: không chạm = không trade
 
-    // RULE 4: Vùng hợp lưu bonus (Key Level + EMA trong 1% = cực mạnh)
+    // RULE 4: Vùng hợp lưu (Key Level tĩnh + EMA trong 1.5% = cực mạnh)
+    // Data: tất cả lệnh thắng lớn đều có Key Level trùng EMA
     let hasConfluence = false;
     const emaValues = [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]];
     for (const ema of emaValues) {
-      if (Math.abs(nearLevel.price - ema) / nearLevel.price * 100 < 1.0) {
+      if (Math.abs(nearLevel.price - ema) / nearLevel.price * 100 < 1.5) {
         hasConfluence = true;
         break;
       }
     }
+    // Nếu dùng EMA làm level thay vì Key Level tĩnh → yêu cầu confluence bắt buộc
+    if (isEmaLevel && !hasConfluence) continue;
 
     // Nguyên tắc bất biến: không Sell gần hỗ trợ, không Buy gần kháng cự
     if (side === 'sell') {
@@ -595,8 +602,13 @@ export function generateSignals(
     }
     if (trend.direction === 'sideway') confidence += 3; // sideway ít điểm hơn
 
-    // Counter-trend (data: Engulfing ngược trend vẫn thắng 50%, Harami đã bị block ở trên)
-    if (isCounterTrend) confidence -= 8;
+    // Counter-trend penalty (data: 9/21 lệnh thua là counter-trend = 43%)
+    // Data mới: Engulfing ngược trend WIN chỉ khi có confluence cực mạnh (Key Level + EMA)
+    // Không có confluence → block hoàn toàn counter-trend
+    if (isCounterTrend) {
+      if (!hasConfluence) continue; // Block counter-trend không có confluence
+      confidence -= 15; // Penalty mạnh hơn cho counter-trend dù có confluence
+    }
 
     // +10 Volume xác nhận (data: strong correlation)
     const volumeConfirm = vol && vol.isHighVolume;

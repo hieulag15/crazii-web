@@ -294,8 +294,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (ethTrend === 'uptrend' && sig.side === 'sell' && !ethNearResistance) continue;
         }
 
-        // Check duplicate: cùng symbol + cùng time nến + cùng side
-        const exists = await col.findOne({ symbol, side: sig.side, entry: sig.entry, timeframe: '4h' });
+        // Check duplicate: cùng symbol + cùng side trong 2 ngày gần nhất
+        // Data: FILUSDT/LTCUSDT SL 3-4 lần → engine generate lại cùng setup
+        const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+        const exists = await col.findOne({ 
+          symbol, 
+          side: sig.side, 
+          timeframe: '4h',
+          createdAt: { $gt: twoDaysAgo },
+          outcome: { $in: ['pending', 'sl'] } // không block nếu đã TP (có thể vào lại)
+        });
         if (exists) continue;
 
         // Build document để lưu (format giống client TrackedSignal)
