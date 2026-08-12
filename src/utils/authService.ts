@@ -67,7 +67,7 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
 
 /** Đăng ký */
 export async function register(email: string, password: string, displayName?: string): Promise<AuthUser> {
-  const res = await fetch('/api/auth/register', {
+  const res = await fetch('/api/auth?action=register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, displayName }),
@@ -80,7 +80,7 @@ export async function register(email: string, password: string, displayName?: st
 
 /** Đăng nhập */
 export async function login(email: string, password: string): Promise<AuthUser> {
-  const res = await fetch('/api/auth/login', {
+  const res = await fetch('/api/auth?action=login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -96,7 +96,7 @@ export async function fetchMe(): Promise<AuthUser | null> {
   const token = getToken();
   if (!token) return null;
   try {
-    const res = await authFetch('/api/auth/me');
+    const res = await authFetch('/api/auth?action=me');
     if (!res.ok) { logout(); return null; }
     const data = await res.json();
     const user = data.user as AuthUser;
@@ -108,13 +108,12 @@ export async function fetchMe(): Promise<AuthUser | null> {
 /** Lưu settings lên server */
 export async function saveSettings(settings: Partial<UserSettings>): Promise<UserSettings | null> {
   try {
-    const res = await authFetch('/api/auth/me', {
+    const res = await authFetch('/api/auth?action=me', {
       method: 'PUT',
       body: JSON.stringify({ settings }),
     });
     if (!res.ok) return null;
     const data = await res.json();
-    // Update cached user
     const cached = getCachedUser();
     if (cached) {
       cached.settings = data.settings;
