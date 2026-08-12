@@ -17,6 +17,10 @@
       "includeFiles": "src/**",
       "maxDuration": 60
     },
+    "api/narrative-scan.ts": {
+      "includeFiles": "src/**",
+      "maxDuration": 120
+    },
     "api/crazii-positions.ts": {
       "includeFiles": "src/**",
       "maxDuration": 30
@@ -26,6 +30,12 @@
       "maxDuration": 30
     }
   },
+  "crons": [
+    {
+      "path": "/api/narrative-scan",
+      "schedule": "0 */4 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

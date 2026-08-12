@@ -25,6 +25,8 @@ import {
 } from '../utils/signalTracker';
 import type { Candle } from '../types/index';
 import { analyzeNewSignal, analyzePostMortem, analyzeScanResults } from '../utils/aiService';
+import NarrativePanel from '../components/NarrativePanel';
+import Footer from '../components/Footer';
 
 const GMT7_OFFSET = 7 * 3600;
 function fmtDate(ts: number) {
@@ -246,7 +248,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     } catch { return null; }
   })();
 
-  const [activeTab, setActiveTab] = useState<'chart' | 'scanner' | 'signals' | 'journal' | 'mypositions'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'scanner' | 'signals' | 'journal' | 'mypositions' | 'narrative'>('chart');
   const [symbol, setSymbol] = useState(savedSettings?.symbol || 'BTCUSDT');
   const [timeframe, setTimeframe] = useState(savedSettings?.timeframe || '1h');
   const [result, setResult] = useState<KeyLevelResult | null>(null);
@@ -1032,6 +1034,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           </button>
           <button onClick={() => { setActiveTab('mypositions'); }} style={{ ...S.tabBtn, ...(activeTab === 'mypositions' ? { ...S.tabActiveJournal, borderColor: '#a855f7', color: '#a855f7' } : {}) }}>
             💼 Lệnh của tôi ({trackedSignals.filter(s => (s as any).inMyPositions).length})
+          </button>
+          <button onClick={() => setActiveTab('narrative')} style={{ ...S.tabBtn, ...(activeTab === 'narrative' ? { ...S.tabActive, borderColor: '#06b6d4', color: '#06b6d4' } : {}) }}>
+            📊 Narrative
           </button>
         </div>
       </div>
@@ -1829,6 +1834,18 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
         })()}
       </div>
 
+        {/* ===== NARRATIVE ===== */}
+        {activeTab === 'narrative' && (
+          <div style={{ ...S.panel, paddingTop: 16 }}>
+            <NarrativePanel
+              onSelectCoin={(coinSymbol) => {
+                setSymbol(coinSymbol);
+                setActiveTab('chart');
+              }}
+            />
+          </div>
+        )}
+
       {/* AI Popup */}
       {aiPopup && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => setAiPopup(null)}>
@@ -1843,6 +1860,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           </div>
         </div>
       )}
+      <Footer variant="minimal" />
     </div>
   );
 }

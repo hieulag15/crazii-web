@@ -28,8 +28,24 @@ const DEFAULT_COIN_LIST = [
 
 async function getWatchlist(db: any): Promise<string[]> {
   try {
-    const doc = await db.collection('settings').findOne({ _id: 'watchlist' as any });
-    if (doc?.coins && doc.coins.length > 0) return doc.coins;
+    // Priority 1: User manual watchlist
+    const userDoc = await db.collection('settings').findOne({ _id: 'watchlist' as any });
+    if (userDoc?.coins && userDoc.coins.length > 0) {
+      // Priority 2: Merge with narrative watchlist (token tiềm năng từ narrative scan)
+      const narrativeDoc = await db.collection('settings').findOne({ _id: 'narrative_watchlist' as any });
+      if (narrativeDoc?.coins && narrativeDoc.coins.length > 0) {
+        const merged = [...new Set([...userDoc.coins, ...narrativeDoc.coins])];
+        console.log(`[Auto-Scan] Watchlist: ${userDoc.coins.length} user + ${narrativeDoc.coins.length} narrative → ${merged.length} total`);
+        return merged;
+      }
+      return userDoc.coins;
+    }
+    // Priority 3: Only narrative watchlist (no manual watchlist set)
+    const narrativeDoc = await db.collection('settings').findOne({ _id: 'narrative_watchlist' as any });
+    if (narrativeDoc?.coins && narrativeDoc.coins.length > 0) {
+      console.log(`[Auto-Scan] Using narrative watchlist: ${narrativeDoc.coins.length} coins`);
+      return [...new Set([...DEFAULT_COIN_LIST, ...narrativeDoc.coins])];
+    }
   } catch { /* fallback */ }
   return DEFAULT_COIN_LIST;
 }

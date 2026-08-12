@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import Footer from '../components/Footer';
 
 interface AcademyPageProps { onBack: () => void; }
 type TopicId = 'overview' | 'step1' | 'step2' | 'step3' | 'step4' | 'mtf' | 'rules' | 'rr'
   | 'macro1' | 'macro2' | 'macro3' | 'macro4'
-  | 'defi1' | 'defi2' | 'defi3';
+  | 'defi1' | 'defi2' | 'defi3'
+  | 'pb_overview' | 'pb_narrative' | 'pb_moneyflow' | 'pb_structure' | 'pb_tips';
 
 const TOPICS: { id: TopicId; icon: string; label: string; group?: string }[] = [
   { id: 'overview', icon: '🎯', label: 'Tổng quan phương pháp', group: 'Trading' },
@@ -21,6 +23,11 @@ const TOPICS: { id: TopicId; icon: string; label: string; group?: string }[] = [
   { id: 'defi1', icon: '📊', label: 'DeFi: Đọc số liệu', group: 'Research' },
   { id: 'defi2', icon: '💎', label: 'DeFi: Định giá P/S & P/TVL' },
   { id: 'defi3', icon: '🏆', label: 'DeFi: Hold hay Skip?' },
+  { id: 'pb_overview', icon: '🌸', label: 'Phước Báu là gì?', group: 'Phước Báu' },
+  { id: 'pb_narrative', icon: '📡', label: 'Narrative Alert' },
+  { id: 'pb_moneyflow', icon: '💸', label: 'Đọc dòng tiền' },
+  { id: 'pb_structure', icon: '📐', label: 'Cấu trúc chart tiềm năng' },
+  { id: 'pb_tips', icon: '🔥', label: 'Tips thực chiến' },
 ];
 
 export default function AcademyPage({ onBack }: AcademyPageProps) {
@@ -34,8 +41,7 @@ export default function AcademyPage({ onBack }: AcademyPageProps) {
       </header>
       <div style={S.body}>
         <nav style={S.sidebar}>
-          <div style={S.sidebarGroup}>📊 TRADING</div>
-          {TOPICS.filter(t => !t.group || t.group === 'Trading').filter(t => !['defi1','defi2','defi3','macro1','macro2','macro3','macro4'].includes(t.id)).map(t => (
+          <div style={S.sidebarGroup}>📊 TRADING</div>          {TOPICS.filter(t => !t.group || t.group === 'Trading').filter(t => !['defi1','defi2','defi3','macro1','macro2','macro3','macro4'].includes(t.id)).map(t => (
             <button key={t.id} onClick={() => setActiveTopic(t.id)}
               style={{ ...S.navItem, ...(activeTopic === t.id ? S.navItemActive : {}) }}>
               <span>{t.icon}</span> {t.label}
@@ -55,9 +61,17 @@ export default function AcademyPage({ onBack }: AcademyPageProps) {
               <span>{t.icon}</span> {t.label}
             </button>
           ))}
+          <div style={{...S.sidebarGroup, marginTop:'12px', color:'#f9a8d4'}}>🌸 PHƯỚC BÁU</div>
+          {TOPICS.filter(t => ['pb_overview','pb_narrative','pb_moneyflow','pb_structure','pb_tips'].includes(t.id)).map(t => (
+            <button key={t.id} onClick={() => setActiveTopic(t.id)}
+              style={{ ...S.navItem, ...(activeTopic === t.id ? { ...S.navItemActive, color: '#f9a8d4', borderColor: '#f9a8d430' } : {}) }}>
+              <span>{t.icon}</span> {t.label}
+            </button>
+          ))}
         </nav>
         <main style={S.main}>{renderTopic(activeTopic)}</main>
       </div>
+      <Footer />
     </div>
   );
 }
@@ -79,6 +93,11 @@ function renderTopic(id: TopicId) {
     case 'defi1': return <Defi1 />;
     case 'defi2': return <Defi2 />;
     case 'defi3': return <Defi3 />;
+    case 'pb_overview':   return <PbOverview />;
+    case 'pb_narrative':  return <PbNarrative />;
+    case 'pb_moneyflow':  return <PbMoneyFlow />;
+    case 'pb_structure':  return <PbStructure />;
+    case 'pb_tips':       return <PbTips />;
   }
 }
 
@@ -843,6 +862,320 @@ function Defi3() {
       </div>
       <div style={S.tipBox}><strong>💡 Lời kết:</strong> DefiLlama chỉ là công cụ, số liệu là nguyên liệu. Người thắng dài hạn là người hiểu giá trị tạo ra ở đâu, ai giữ giá trị đó, và token mình cầm có thực sự nhận được phần nào không.</div>
     </article>
+  );
+}
+
+// ============================================================
+// PHƯỚC BÁU SECTION COMPONENTS
+// ============================================================
+
+function PbOverview() {
+  return (
+    <article style={S.article}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <span style={{ fontSize: 36 }}>🌸</span>
+        <div>
+          <h3 style={{ ...S.h3, margin: 0 }}>Phước Báu Community</h3>
+          <p style={{ color: '#f9a8d4', fontSize: '0.82rem', margin: '4px 0 0' }}>Nguồn kiến thức &amp; cộng đồng crypto Việt Nam</p>
+        </div>
+      </div>
+      <blockquote style={{ ...S.quote, borderColor: '#f9a8d4' }}>
+        "Crypto không tăng đều, dòng tiền chỉ chảy vào 2–3 narrative chính rồi chuyển sang chỗ khác.
+        Vấn đề là hầu hết mọi người phát hiện ra sau khi coin đã pump rồi."
+        <br /><span style={{ color: '#f9a8d4', fontSize: '0.78rem' }}>— Kurt | Phước Báu Community</span>
+      </blockquote>
+      <p style={S.p}>
+        <strong>Phước Báu</strong> là cộng đồng trading crypto tiếng Việt do Kurt xây dựng, tập trung vào phân tích
+        <strong> dòng tiền theo narrative</strong> — xác định <em>đợt sóng nào đang được chọn</em> trước khi token trong đó tăng mạnh.
+      </p>
+      <div style={S.ruleBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>Sản phẩm chính của Phước Báu:</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+          {([
+            { icon: '📡', name: 'Narrative Alert Bot', desc: 'Cập nhật mỗi 4h — narrative nào đang hot, token tiềm năng trong đó là gì' },
+            { icon: '📊', name: 'Phân tích dòng tiền', desc: 'Đọc BTC.D, USDT.D, Total 2/3 để biết tiền đang chảy vào đâu' },
+            { icon: '🔍', name: 'Research DeFi', desc: 'Phân tích token theo P/S, P/TVL, revenue — không mua hàng không có giá trị thật' },
+            { icon: '📐', name: 'Cấu trúc chart', desc: 'Nhận diện tích lũy sideway, setup breakout để vào lệnh đúng timing' },
+          ] as const).map(item => (
+            <div key={item.name} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', background: '#0f172a', border: '1px solid #1e2d4a', borderRadius: 8, padding: '10px 12px' }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#f1f5f9', marginBottom: 3 }}>{item.name}</div>
+                <div style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.5 }}>{item.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ ...S.infoBox, borderColor: '#f9a8d430', background: 'rgba(249,168,212,0.04)' }}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>Ví dụ thực tế đã alert sớm:</h4>
+        <p style={{ ...S.p, marginBottom: 8 }}>
+          Hệ AI là ví dụ rõ nhất — Phước Báu alert <strong>TAO · VIRTUAL · FET · COOKIE · NEAR</strong> rất sớm,
+          trước khi cả narrative đó tăng mạnh 50–100%. Không phải 1 kèo, mà cả một đợt sóng.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {['TAO', 'VIRTUAL', 'FET', 'COOKIE', 'NEAR'].map(coin => (
+            <span key={coin} style={{ background: '#22c55e20', color: '#86efac', border: '1px solid #22c55e40', borderRadius: 6, padding: '3px 10px', fontSize: '0.8rem', fontWeight: 700 }}>
+              #{coin}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div style={S.tipBox}>
+        <strong>💡 Triết lý cốt lõi:</strong> Trong Uptrend, dòng tiền chạy nhanh. Ai có hệ thống sẵn thì bắt được sóng.
+        Ai không có thì mua đỉnh. Mục tiêu của Phước Báu là giúp anh em tối ưu thời gian và lợi nhuận bằng
+        cách <em>phát hiện narrative sớm hơn thị trường</em>.
+      </div>
+      <PbAttribution />
+    </article>
+  );
+}
+
+function PbNarrative() {
+  return (
+    <article style={S.article}>
+      <h3 style={{ ...S.h3, color: '#f9a8d4' }}>📡 Narrative Alert — Cách Đọc Tín Hiệu</h3>
+      <blockquote style={{ ...S.quote, borderColor: '#f9a8d4' }}>
+        "Channel NARRATIVE ALERT làm đúng 1 việc: Báo narrative nào đang được chọn,
+        trước khi token trong đó tăng mạnh."
+        <br /><span style={{ color: '#f9a8d4', fontSize: '0.78rem' }}>— Kurt | Phước Báu</span>
+      </blockquote>
+      <p style={S.p}>Mỗi 4 giờ, bot sẽ tổng hợp và báo cáo theo format chuẩn. Cách đọc từng phần:</p>
+      <div style={{ background: '#0a0e17', border: '1px solid #1e2d4a', borderRadius: 10, padding: '14px 16px', margin: '14px 0', fontFamily: 'monospace', fontSize: '0.82rem', lineHeight: 1.8 }}>
+        <div style={{ color: '#f9a8d4', fontWeight: 700, marginBottom: 8 }}>📊 Narrative Analysis (4H Update)</div>
+        <div style={{ color: '#fbbf24', fontWeight: 700 }}>📊 Derivatives <span style={{ color: '#22c55e' }}>+14.9%</span></div>
+        <div style={{ color: '#94a3b8', fontSize: '0.78rem', marginBottom: 8 }}>(% tăng trung bình của cả narrative trong 4h)</div>
+        <div style={{ color: '#f97316', fontWeight: 600 }}>🔥 Top 3 tăng mạnh nhất (1h)</div>
+        <div style={{ color: '#e2e8f0' }}>#PENDLE (+3.9%) · #LIT (+3.2%) · #BASED (+2.8%)</div>
+        <div style={{ color: '#94a3b8', fontSize: '0.78rem', marginBottom: 8 }}>(token đang dẫn đầu sóng ngắn hạn 1h)</div>
+        <div style={{ color: '#fbbf24', fontWeight: 600 }}>💎 Token tiềm năng</div>
+        <div style={{ color: '#fde68a' }}>#LIT · #PENDLE · #BASED · #UMA · #MYX</div>
+        <div style={{ color: '#94a3b8', fontSize: '0.78rem' }}>(coin chưa pump, volume ổn, đang tích lũy)</div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>Giải thích 3 thông tin chính:</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+          {([
+            { color: '#fbbf24', title: '1. % tăng narrative', items: [
+              'Tính theo trung bình có trọng số của volume',
+              '+5% trở lên = narrative rất mạnh, dòng tiền đang đổ vào',
+              '+2% đến +5% = tốt, đáng theo dõi',
+              'Gần 0% hoặc âm = không có dòng tiền, bỏ qua',
+            ]},
+            { color: '#f97316', title: '2. Top 3 gainers 1h', items: [
+              'Coin đang dẫn đầu sóng ngắn hạn — thường đã pump rồi',
+              'Dùng để xác nhận narrative đang active, không nên đuổi theo',
+              'Nếu top gainers toàn coin rác rank thấp → sóng yếu, pump ảo',
+            ]},
+            { color: '#fde68a', title: '3. Token tiềm năng 💎', items: [
+              'Coin chưa pump trong narrative đang hot',
+              'Tiêu chí: change 1h thấp (<3%), volume ổn định, market cap hợp lý',
+              'Đây là những coin nên đặt lên watchlist để chờ setup vào lệnh',
+              'Kết hợp với Key Level engine để tìm điểm entry chính xác',
+            ]},
+          ] as const).map(block => (
+            <div key={block.title} style={{ background: '#1e293b', borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontWeight: 700, color: block.color, marginBottom: 6, fontSize: '0.85rem' }}>{block.title}</div>
+              <ul style={{ ...S.ul, fontSize: '0.8rem', margin: 0 }}>
+                {block.items.map(i => <li key={i}>{i}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={S.warningBox}>
+        <strong>⚠️ Dấu hiệu thị trường yếu — theo Kurt:</strong>
+        <ul style={{ ...S.ul, marginTop: 8 }}>
+          <li>Top gainers toàn coin rank thấp (out top 100) — không có tên tuổi</li>
+          <li>Narrative alert chỉ có <strong>stablecoin</strong> nổi lên → tiền chạy vào stablecoin = market sắp yếu</li>
+          <li>Token tiềm năng đều không có cấu trúc chart tốt, volume thấp</li>
+        </ul>
+      </div>
+      <div style={S.tipBox}>
+        <strong>💡 Trong app này:</strong> Tab <strong>📊 Narrative</strong> trong Key Level Page đã tích hợp
+        logic tương tự — scan 4h, tìm narrative mạnh, lọc token tiềm năng. Token tìm được tự động
+        đưa vào watchlist để Key Level Engine scan tìm điểm vào lệnh.
+      </div>
+      <PbAttribution />
+    </article>
+  );
+}
+
+function PbMoneyFlow() {
+  return (
+    <article style={S.article}>
+      <h3 style={{ ...S.h3, color: '#f9a8d4' }}>💸 Đọc Dòng Tiền — Xác Nhận Narrative</h3>
+      <p style={S.p}>
+        Sau khi xác định narrative hot từ Narrative Alert, bước tiếp theo là <strong>xác nhận dòng tiền thật sự</strong> đang chảy vào hay chỉ là pump ảo.
+      </p>
+      <div style={S.ruleBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>Checklist xác nhận dòng tiền:</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          {([
+            { check: '✅ Nhiều coin trong narrative cùng tăng', good: 'Dòng tiền đang chảy vào — tín hiệu tin cậy', bad: 'Chỉ 1-2 coin tăng lẻ — có thể pump ảo, market maker' },
+            { check: '✅ Volume 24h tăng so với ngày trước', good: 'Tiền thật đang vào — xác nhận narrative', bad: 'Volume thấp hoặc giảm — momentum yếu, dễ đảo chiều' },
+            { check: '✅ BTC.D đang giảm hoặc ổn định', good: 'Tiền chảy sang altcoin — môi trường thuận lợi', bad: 'BTC.D đang tăng — tiền vào BTC, alt khó tăng bền' },
+            { check: '✅ USDT.D đang giảm', good: 'Tiền rời stablecoin vào thị trường — bull momentum', bad: 'USDT.D tăng — nhà đầu tư đang rút tiền, cẩn thận' },
+          ] as const).map(item => (
+            <div key={item.check} style={{ background: '#0f172a', border: '1px solid #1e2d4a', borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '0.85rem', marginBottom: 6 }}>{item.check}</div>
+              <div style={{ fontSize: '0.78rem', color: '#86efac', marginBottom: 3 }}>✅ Tốt: {item.good}</div>
+              <div style={{ fontSize: '0.78rem', color: '#fca5a5' }}>⚠️ Cảnh báo: {item.bad}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={S.infoBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>Chu kỳ dòng tiền điển hình:</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 10 }}>
+          {([
+            { step: '1', label: 'BTC tăng + BTC.D tăng', desc: 'Tổ chức mua BTC, tiền vào BTC trước', color: '#fbbf24' },
+            { step: '2', label: 'ETH & Large Cap alt tăng', desc: 'Dòng tiền lan sang ETH và top altcoin', color: '#a78bfa' },
+            { step: '3', label: 'Mid Cap alt bùng nổ', desc: 'Narrative mạnh xuất hiện, alt rank 50–200 tăng', color: '#34d399' },
+            { step: '4', label: 'Small Cap & Meme pump', desc: 'Cuối chu kỳ, tiền xuống small cap và meme', color: '#f87171' },
+          ] as const).map((s, i) => (
+            <div key={s.step} style={{ display: 'flex', gap: 12, position: 'relative' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: s.color + '25', border: `2px solid ${s.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: s.color, fontSize: '0.82rem', flexShrink: 0 }}>{s.step}</div>
+                {i < 3 && <div style={{ width: 2, height: 20, background: '#334155' }} />}
+              </div>
+              <div style={{ paddingBottom: i < 3 ? 4 : 0 }}>
+                <div style={{ fontWeight: 700, color: s.color, fontSize: '0.85rem' }}>{s.label}</div>
+                <div style={{ color: '#94a3b8', fontSize: '0.78rem' }}>{s.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={S.tipBox}>
+        <strong>💡 Chiến lược Phước Báu:</strong> Mục tiêu là bắt <strong>bước 3 — mid cap narrative</strong> sớm hơn đám đông,
+        khi dòng tiền vừa bắt đầu chuyển từ BTC/ETH sang narrative cụ thể. Đây là điểm có risk/reward tốt nhất.
+      </div>
+      <PbAttribution />
+    </article>
+  );
+}
+
+function PbStructure() {
+  return (
+    <article style={S.article}>
+      <h3 style={{ ...S.h3, color: '#f9a8d4' }}>📐 Cấu Trúc Chart Tiềm Năng Để Vào Lệnh</h3>
+      <p style={S.p}>
+        Khi đã xác định narrative mạnh và token tiềm năng, bước cuối là tìm cấu trúc chart hợp lý để vào lệnh.
+        Theo Phước Báu, có 2 dạng cấu trúc chính:
+      </p>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 240, background: 'rgba(34,197,94,0.05)', border: '1px solid #22c55e40', borderRadius: 10, padding: 16 }}>
+          <h4 style={{ color: '#22c55e', margin: '0 0 10px', fontSize: '0.92rem' }}>📦 Dạng 1: Tích Lũy Sideway</h4>
+          <p style={{ ...S.p, marginBottom: 8, fontSize: '0.8rem' }}>Giá đang sideway (nén lại) trong vùng hẹp — giai đoạn "nạp đạn" trước sóng mới.</p>
+          <ul style={{ ...S.ul, fontSize: '0.78rem' }}>
+            <li>Giá dao động trong range hẹp ≥ 2–3 tuần</li>
+            <li>Volume giảm dần trong giai đoạn tích lũy</li>
+            <li>EMA 34/89 đang flatten (nằm ngang)</li>
+            <li>Entry: Breakout khỏi vùng sideway + volume tăng đột biến</li>
+            <li>SL: Dưới đáy của vùng sideway</li>
+          </ul>
+        </div>
+        <div style={{ flex: 1, minWidth: 240, background: 'rgba(59,130,246,0.05)', border: '1px solid #3b82f640', borderRadius: 10, padding: 16 }}>
+          <h4 style={{ color: '#3b82f6', margin: '0 0 10px', fontSize: '0.92rem' }}>📈 Dạng 2: Setup Tăng</h4>
+          <p style={{ ...S.p, marginBottom: 8, fontSize: '0.8rem' }}>Giá đang uptrend rõ ràng, vừa có pullback nhẹ về vùng hỗ trợ — cơ hội mua đợt 2.</p>
+          <ul style={{ ...S.ul, fontSize: '0.78rem' }}>
+            <li>Xu hướng tăng: Higher High + Higher Low rõ ràng</li>
+            <li>Pullback về EMA 34 hoặc 89 (không phá vỡ)</li>
+            <li>Nến đảo chiều bullish tại vùng pullback</li>
+            <li>Entry: Sau nến đảo chiều đóng cửa</li>
+            <li>SL: Dưới EMA 89 hoặc dưới đáy pullback</li>
+          </ul>
+        </div>
+      </div>
+      <div style={S.ruleBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>Kết hợp Narrative + Key Level Engine (workflow):</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          {([
+            { step: 'B1', desc: 'Narrative Alert báo narrative đang mạnh (VD: DeFi +12%)' },
+            { step: 'B2', desc: 'Token tiềm năng được lọc: #PENDLE, #LIT, #AAVE... (chưa pump)' },
+            { step: 'B3', desc: 'Key Level Engine tự scan các token đó, tìm cấu trúc tích lũy hoặc setup tăng' },
+            { step: 'B4', desc: 'Signal + Alert khi nến đảo chiều xuất hiện tại vùng Key Level → vào lệnh' },
+          ] as const).map(item => (
+            <div key={item.step} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ background: '#f9a8d420', color: '#f9a8d4', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.78rem', flexShrink: 0 }}>{item.step}</span>
+              <div style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>{item.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={S.tipBox}>
+        <strong>💡 Độ mạnh của setup</strong> tăng theo số yếu tố hội tụ:
+        Narrative mạnh + Token chưa pump + Tích lũy sideway dài + EMA flatten + Volume giảm trong sideway
+        = <strong>Setup chất lượng cao nhất</strong>, tỷ lệ thắng và R:R tốt nhất.
+      </div>
+      <PbAttribution />
+    </article>
+  );
+}
+
+function PbTips() {
+  return (
+    <article style={S.article}>
+      <h3 style={{ ...S.h3, color: '#f9a8d4' }}>🔥 Tips Thực Chiến Từ Phước Báu</h3>
+      <p style={S.p}>Đúc kết từ kinh nghiệm thực chiến và chia sẻ của Kurt trong cộng đồng:</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {([
+          { border: '#f9a8d4', icon: '📡', color: '#f9a8d4', title: 'Check Narrative Alert trước khi scan coin', body: 'Đừng scan ngẫu nhiên. Hãy check narrative nào đang mạnh trước, sau đó mới scan coin trong narrative đó. Tìm đúng narrative = đi theo dòng tiền, không đi ngược.' },
+          { border: '#fbbf24', icon: '⚠️', color: '#fbbf24', title: 'Thị trường KHÔNG có dòng tiền khi:', body: null,
+            list: ['Top gainers toàn coin rác rank thấp (không có tên tuổi trong top 100)', 'Narrative alert chỉ có stablecoin nổi lên → tránh trade, đứng ngoài', 'Hầu hết narrative đều có % thay đổi gần 0 hoặc âm'] },
+          { border: '#34d399', icon: '💡', color: '#34d399', title: 'Chọn token tiềm năng đúng cách', body: null,
+            list: ['Chưa có sóng tăng gần đây (chart đang tích lũy sideway)', 'Volume ổn định hoặc đang tăng nhẹ (tiền đang vào dần)', 'Chart có cấu trúc tăng: Higher Low gần đây, không phá vỡ đáy quan trọng', 'Market cap thấp hơn so với các coin khác trong cùng narrative'] },
+          { border: '#f97316', icon: '🎯', color: '#f97316', title: 'Không cần trade mọi narrative', body: 'Chỉ cần bắt đúng 2-3 narrative mạnh mỗi chu kỳ là đủ tạo ra lợi nhuận tốt. Kiên nhẫn chờ setup chất lượng còn hơn trade liên tục với setup trung bình.' },
+        ] as const).map(tip => (
+          <div key={tip.title} style={{ background: '#0f172a', border: `1px solid ${tip.border}30`, borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 20 }}>{tip.icon}</span>
+              <span style={{ fontWeight: 700, color: tip.color, fontSize: '0.9rem' }}>{tip.title}</span>
+            </div>
+            {tip.body && <p style={{ ...S.p, margin: 0, fontSize: '0.82rem' }}>{tip.body}</p>}
+            {'list' in tip && tip.list && (
+              <ul style={{ ...S.ul, fontSize: '0.8rem', margin: 0 }}>
+                {tip.list.map(item => <li key={item}>{item}</li>)}
+              </ul>
+            )}
+          </div>
+        ))}
+
+        {/* Timing block */}
+        <div style={{ background: '#0f172a', border: '1px solid #a78bfa30', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 20 }}>⏱️</span>
+            <span style={{ fontWeight: 700, color: '#a78bfa', fontSize: '0.9rem' }}>Timing theo chu kỳ 4H</span>
+          </div>
+          <p style={{ ...S.p, margin: '0 0 10px', fontSize: '0.82rem' }}>Narrative Alert cập nhật mỗi 4h, đồng với nến H4 đóng:</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {(['3:00', '7:00', '11:00', '15:00', '19:00', '23:00'] as const).map(t => (
+              <span key={t} style={{ background: '#a78bfa20', color: '#c4b5fd', border: '1px solid #a78bfa30', borderRadius: 6, padding: '3px 10px', fontSize: '0.8rem', fontWeight: 700 }}>
+                {t} GMT+7
+              </span>
+            ))}
+          </div>
+          <p style={{ ...S.p, margin: '8px 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+            Nến H4 đóng → Narrative Alert cập nhật → Scan token tiềm năng → Setup vào lệnh nếu có
+          </p>
+        </div>
+      </div>
+      <PbAttribution />
+    </article>
+  );
+}
+
+/** Attribution footer cho mỗi bài Phước Báu */
+function PbAttribution() {
+  return (
+    <div style={{ marginTop: 24, padding: '14px 16px', background: 'rgba(249,168,212,0.04)', border: '1px solid #f9a8d425', borderRadius: 10, textAlign: 'center' }}>
+      <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: 4 }}>📚 Nội dung được đúc kết từ kiến thức của</div>
+      <div style={{ fontWeight: 700, color: '#f9a8d4', fontSize: '0.95rem', marginBottom: 3 }}>🌸 Phước Báu Community</div>
+      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+        Cảm ơn Kurt và cộng đồng Phước Báu đã chia sẻ kiến thức về phân tích narrative và dòng tiền crypto
+      </div>
+    </div>
   );
 }
 
