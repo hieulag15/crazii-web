@@ -26,6 +26,7 @@ export interface NarrativeScanData {
   marketHealth: 'strong' | 'moderate' | 'weak';
 }
 
+
 export interface NarrativeWatchlist {
   coins: string[];
   scanTime: number;
