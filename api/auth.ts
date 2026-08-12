@@ -1,14 +1,13 @@
 /**
  * /api/auth — Unified auth handler (gộp login + register + me)
- * Routing theo query param ?action=
+ * Routing theo URL path cuối:
  *
- * POST /api/auth?action=login     — đăng nhập
- * POST /api/auth?action=register  — đăng ký
- * GET  /api/auth?action=me        — lấy profile (cần token)
- * PUT  /api/auth?action=me        — cập nhật settings (cần token)
+ * POST /api/auth/login     — đăng nhập
+ * POST /api/auth/register  — đăng ký
+ * GET  /api/auth/me        — lấy profile (cần token)
+ * PUT  /api/auth/me        — cập nhật settings (cần token)
  *
- * Gộp từ api/auth/login.ts + api/auth/register.ts + api/auth/me.ts
- * để không vượt giới hạn 12 Serverless Functions của Vercel Hobby.
+ * Vercel tự route /api/auth/* → file này nhờ vercel.json rewrites
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -17,7 +16,9 @@ import { getDB, DEFAULT_SETTINGS } from './_lib/db.js';
 import { hashPassword, verifyPassword, signToken, getUserFromRequest } from './_lib/auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const action = (req.query.action as string) || '';
+  // Lấy action từ path: /api/auth/login → "login"
+  const urlPath = req.url?.split('?')[0] ?? '';
+  const action = urlPath.split('/').pop() ?? '';
 
   // ── POST /api/auth?action=login ────────────────────────────────────────────
   if (action === 'login') {
