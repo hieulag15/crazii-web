@@ -73,6 +73,22 @@ function NarrativeCard({ n, onSelectCoin }: { n: NarrativeResult; onSelectCoin: 
   const [expanded, setExpanded] = useState(false);
   const change4hColor = changeColor(n.change4h);
 
+  // Logic từ Phước Báu: còn cơ hội hay đã muộn?
+  const maxGainer1h = n.topGainers1h.length > 0
+    ? Math.max(...n.topGainers1h.map(g => g.change))
+    : 0;
+  const opportunity = maxGainer1h > 3 ? 'still'    // còn cơ hội
+    : maxGainer1h > 1               ? 'maybe'    // có thể còn
+    : n.change4h > 2                ? 'late'     // đã muộn
+    : 'weak';                                    // sóng yếu
+
+  const oppBadge = {
+    still: { label: '🟢 Còn cơ hội', color: '#22c55e', bg: '#22c55e18' },
+    maybe: { label: '🟡 Có thể còn', color: '#fbbf24', bg: '#fbbf2418' },
+    late:  { label: '🔴 Có thể muộn', color: '#f97316', bg: '#f9731618' },
+    weak:  { label: '⚫ Sóng yếu',   color: '#64748b', bg: '#64748b15' },
+  }[opportunity];
+
   return (
     <div style={{
       background: '#0d1422', border: '1px solid #1e293b',
@@ -89,10 +105,14 @@ function NarrativeCard({ n, onSelectCoin }: { n: NarrativeResult; onSelectCoin: 
       >
         <span style={{ fontSize: 18 }}>{n.emoji}</span>
         <span style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>{n.name}</span>
-        <span style={{ fontWeight: 700, fontSize: 15, color: change4hColor }}>
+        {/* Badge còn cơ hội / đã muộn */}
+        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: oppBadge.bg, color: oppBadge.color, border: `1px solid ${oppBadge.color}30` }}>
+          {oppBadge.label}
+        </span>
+        <span style={{ fontWeight: 700, fontSize: 15, color: change4hColor, marginLeft: 4 }}>
           {n.change4h >= 0 ? '+' : ''}{n.change4h.toFixed(1)}%
         </span>
-        <span style={{ color: '#64748b', fontSize: 12, marginLeft: 6 }}>{expanded ? '▲' : '▼'}</span>
+        <span style={{ color: '#64748b', fontSize: 12, marginLeft: 4 }}>{expanded ? '▲' : '▼'}</span>
       </button>
 
       {expanded && (

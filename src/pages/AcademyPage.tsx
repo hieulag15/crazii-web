@@ -5,7 +5,8 @@ interface AcademyPageProps { onBack: () => void; }
 type TopicId = 'overview' | 'step1' | 'step2' | 'step3' | 'step4' | 'mtf' | 'rules' | 'rr'
   | 'macro1' | 'macro2' | 'macro3' | 'macro4'
   | 'defi1' | 'defi2' | 'defi3'
-  | 'pb_overview' | 'pb_narrative' | 'pb_moneyflow' | 'pb_structure' | 'pb_tips';
+  | 'pb_overview' | 'pb_narrative' | 'pb_moneyflow' | 'pb_structure' | 'pb_tips'
+  | 'pb_howtoread' | 'pb_patterns';
 
 const TOPICS: { id: TopicId; icon: string; label: string; group?: string }[] = [
   { id: 'overview', icon: '🎯', label: 'Tổng quan phương pháp', group: 'Trading' },
@@ -24,9 +25,11 @@ const TOPICS: { id: TopicId; icon: string; label: string; group?: string }[] = [
   { id: 'defi2', icon: '💎', label: 'DeFi: Định giá P/S & P/TVL' },
   { id: 'defi3', icon: '🏆', label: 'DeFi: Hold hay Skip?' },
   { id: 'pb_overview', icon: '🌸', label: 'Phước Báu là gì?', group: 'Phước Báu' },
+  { id: 'pb_howtoread', icon: '📖', label: 'Cách đọc Narrative Bot' },
   { id: 'pb_narrative', icon: '📡', label: 'Narrative Alert' },
   { id: 'pb_moneyflow', icon: '💸', label: 'Đọc dòng tiền' },
-  { id: 'pb_structure', icon: '📐', label: 'Cấu trúc chart tiềm năng' },
+  { id: 'pb_patterns', icon: '📐', label: 'Mẫu hình tích lũy sideway' },
+  { id: 'pb_structure', icon: '🎯', label: 'Cấu trúc chart tiềm năng' },
   { id: 'pb_tips', icon: '🔥', label: 'Tips thực chiến' },
 ];
 
@@ -62,7 +65,7 @@ export default function AcademyPage({ onBack }: AcademyPageProps) {
             </button>
           ))}
           <div style={{...S.sidebarGroup, marginTop:'12px', color:'#f9a8d4'}}>🌸 PHƯỚC BÁU</div>
-          {TOPICS.filter(t => ['pb_overview','pb_narrative','pb_moneyflow','pb_structure','pb_tips'].includes(t.id)).map(t => (
+          {TOPICS.filter(t => ['pb_overview','pb_howtoread','pb_narrative','pb_moneyflow','pb_patterns','pb_structure','pb_tips'].includes(t.id)).map(t => (
             <button key={t.id} onClick={() => setActiveTopic(t.id)}
               style={{ ...S.navItem, ...(activeTopic === t.id ? { ...S.navItemActive, color: '#f9a8d4', borderColor: '#f9a8d430' } : {}) }}>
               <span>{t.icon}</span> {t.label}
@@ -98,6 +101,8 @@ function renderTopic(id: TopicId) {
     case 'pb_moneyflow':  return <PbMoneyFlow />;
     case 'pb_structure':  return <PbStructure />;
     case 'pb_tips':       return <PbTips />;
+    case 'pb_howtoread':  return <PbHowToRead />;
+    case 'pb_patterns':   return <PbPatterns />;
   }
 }
 
@@ -1176,6 +1181,177 @@ function PbAttribution() {
         Cảm ơn Kurt và cộng đồng Phước Báu đã chia sẻ kiến thức về phân tích narrative và dòng tiền crypto
       </div>
     </div>
+  );
+}
+
+// ─── Ảnh 1: Cách đọc Narrative Bot ───────────────────────────────────────────
+function PbHowToRead() {
+  return (
+    <article style={S.article}>
+      <h3 style={{ ...S.h3, color: '#f9a8d4' }}>📖 Cách Đọc Narrative Bot Để Trade</h3>
+      <blockquote style={{ ...S.quote, borderColor: '#f9a8d4' }}>
+        "Bot này làm đúng 1 việc: báo narrative nào đang được chọn — trước khi token trong đó bơm."
+        <br /><span style={{ color: '#f9a8d4', fontSize: '0.78rem' }}>— Phước Báu Community · Narrative Bot Guide</span>
+      </blockquote>
+
+      <div style={S.ruleBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>① Tại sao cần theo Narrative?</h4>
+        <p style={{ ...S.p, margin: '6px 0 10px' }}>Crypto không tăng đều — dòng tiền tập trung vào 2–3 narrative rồi rotate sang chỗ khác.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {(['Toàn thị trường', '→', '1-2 Narrative', '→', 'Token trong đó', '→', '🚀 bơm'] as const).map((s, i) => (
+            s === '→'
+              ? <span key={i} style={{ color: '#64748b' }}>→</span>
+              : <span key={i} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 6, padding: '3px 10px', fontSize: '0.78rem', fontWeight: 600, color: i === 0 ? '#93c5fd' : i === 2 ? '#f9a8d4' : i === 4 ? '#86efac' : '#fde68a' }}>{s}</span>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.infoBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>② 3 Trường Data — Đọc Thế Nào?</h4>
+        <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+          {([
+            { color: '#3b82f6', title: 'Narrative %', example: 'VD: DAG +13.3%', lines: ['Sector nào có dòng tiền vào', 'Tăng liên tiếp 2-3 update → trend thật'] },
+            { color: '#f97316', title: 'Top 3 tăng 1h', example: 'VD: HBAR +8.1%', lines: ['Đo momentum HIỆN TẠI', '>3% thì còn sớm, <1% → sắp hết lực'] },
+            { color: '#22c55e', title: 'Token tiềm năng', example: 'VD: KAS · PYTH', lines: ['Chưa tăng theo narrative', 'Cơ hội catch-up còn đây ✓'] },
+          ] as const).map(col => (
+            <div key={col.title} style={{ flex: 1, minWidth: 130, background: col.color + '10', border: `1px solid ${col.color}30`, borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontWeight: 700, color: col.color, fontSize: '0.83rem', marginBottom: 4 }}>{col.title}</div>
+              <div style={{ fontSize: '0.73rem', color: '#94a3b8', marginBottom: 6, fontStyle: 'italic' }}>{col.example}</div>
+              <ul style={{ ...S.ul, fontSize: '0.76rem', margin: 0 }}>{col.lines.map(l => <li key={l}>{l}</li>)}</ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.ruleBox}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>③ Quy trình 5 phút mỗi khi Bot update</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          {([
+            { n: '1', c: '#ef4444', t: 'So sánh Narrative % với update trước → cái nào tăng hơn?' },
+            { n: '2', c: '#f97316', t: 'Kiểm tra Top 3 tăng 1h — trên +3% thì còn cơ hội' },
+            { n: '3', c: '#3b82f6', t: 'Vào Binance / CoinGecko xem token tiềm năng: volume ổn? chart cấu trúc tăng? chưa pump?' },
+            { n: '4', c: '#22c55e', t: 'Vào lệnh nhỏ → chờ update 4h sau confirm → scale thêm' },
+          ] as const).map(step => (
+            <div key={step.n} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', background: step.c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#fff', fontSize: '0.78rem', flexShrink: 0 }}>{step.n}</div>
+              <div style={{ fontSize: '0.83rem', color: '#cbd5e1', paddingTop: 3 }}>{step.t}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4', marginBottom: 10 }}>④ Còn cơ hội hay đã muộn?</h4>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 190, background: '#22c55e10', border: '1px solid #22c55e40', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: 8, fontSize: '0.85rem' }}>✓ CÒN CƠ HỘI — NÊN MUA</div>
+            <ul style={{ ...S.ul, fontSize: '0.8rem', margin: 0 }}>
+              <li>Top 3 gainers 1h đạt <strong>&gt;3%</strong></li>
+              <li>Narrative % đang bơm liên tiếp</li>
+              <li>Token tiềm năng <strong>chưa tăng</strong></li>
+            </ul>
+          </div>
+          <div style={{ flex: 1, minWidth: 190, background: '#ef444410', border: '1px solid #ef444440', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontWeight: 700, color: '#ef4444', marginBottom: 8, fontSize: '0.85rem' }}>✗ ĐÃ MUỘN — KHÔNG CHASE</div>
+            <ul style={{ ...S.ul, fontSize: '0.8rem', margin: 0 }}>
+              <li>Top 3 gainers 1h <strong>&lt;1%</strong> (sắp hết lực)</li>
+              <li>Narrative % vẫn cao nhưng 1h gần flat</li>
+              <li>Token tiềm năng cũng đã pump</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div style={S.tipBox}>
+        <strong>⑤ Bot cho biết NÊN NHÌN VÀO ĐÂU — không phải lệnh cụ thể</strong>
+        <p style={{ margin: '8px 0 0', fontSize: '0.82rem' }}>
+          Sau khi bot báo narrative → tự làm thêm 3 bước: <strong>Volume ổn? · Chart cấu trúc tăng? · Chưa pump quá?</strong>
+          <br />Đủ 3 → vào lệnh. Thiếu 1 → chờ hoặc bỏ qua.
+        </p>
+      </div>
+
+      <div style={S.warningBox}>
+        <strong>⑥ Những lỗi cần tránh:</strong>
+        <ul style={{ ...S.ul, marginTop: 8, fontSize: '0.82rem' }}>
+          <li>✗ Chase token đã tăng &gt;8% trong 1h — thường là đỉnh ngắn hạn</li>
+          <li>✗ Trade tất cả narrative cùng lúc — chọn 1 mạnh nhất, tập trung</li>
+          <li>✗ Narrative % cao = còn cơ hội — SAI! Phải xem Top 3 tăng 1h</li>
+          <li>✗ Không đặt SL — narrative đảo chiều rất nhanh trong 1–2 cây nến</li>
+        </ul>
+      </div>
+      <PbAttribution />
+    </article>
+  );
+}
+
+// ─── Ảnh 2: Mẫu hình sideway tích lũy ────────────────────────────────────────
+function PbPatterns() {
+  return (
+    <article style={S.article}>
+      <h3 style={{ ...S.h3, color: '#f9a8d4' }}>📐 Mẫu Hình Sideway Tích Lũy — Nhận Diện & Vào Lệnh</h3>
+      <p style={S.p}>
+        Khi narrative đang bơm và token tiềm năng chưa tăng — hãy tìm 4 mẫu hình tích lũy sau.
+        <strong> Tích lũy càng dài → breakout càng mạnh.</strong>
+      </p>
+
+      {([
+        { letter: 'A', color: '#3b82f6', name: 'Rectangle Range (hộp tích lũy phẳng)',
+          desc: 'Giá dao động đều trong vùng hẹp giữa kháng cự phẳng và hỗ trợ phẳng. Volume co dần trong sideway, bùng khi breakout.',
+          entry: 'Nến phá kháng cự + volume tăng đột biến', sl: 'Dưới hỗ trợ range',
+          signs: 'Kháng cự phẳng rõ · Volume giảm dần · Volume bùng khi breakout' },
+        { letter: 'B', color: '#a78bfa', name: 'Ascending Triangle (tam giác tăng)',
+          desc: 'Kháng cự phẳng phía trên, đáy ngày càng cao hơn (Đáy 1 < 2 < 3). Người mua đang hấp thụ lực bán dần.',
+          entry: 'Nến phá kháng cự phẳng', sl: 'Dưới đáy swing gần nhất',
+          signs: 'Kháng cự phẳng + đáy cao dần · Rất phổ biến trong altcoin' },
+        { letter: 'C', color: '#22c55e', name: 'Flat Base (nền phẳng sau đợt tăng mạnh)',
+          desc: 'Sau đợt tăng mạnh, giá sideway phẳng (biên độ rất hẹp) tạo nền. Mạnh hơn nếu nằm sau uptrend.',
+          entry: 'Nến phá high flat base với volume tăng', sl: 'Dưới low flat base',
+          signs: 'Biên độ rất hẹp · Nằm sau đợt tăng mạnh · Volume co cực dần' },
+        { letter: 'D', color: '#f97316', name: 'Wyckoff Spring (giả phá đáy rồi đảo chiều)',
+          desc: 'Giá phá xuống dưới hỗ trợ (fake breakdown) rồi đóng cửa mạnh trở lại. Smart money thường dùng kiểu này.',
+          entry: 'Nến đóng cửa trên hỗ trợ sau cú fake breakdown', sl: 'Dưới đáy spring',
+          signs: 'Phá đáy nhưng không giữ → sign of strength · Volume cao tại cây nến phá đáy' },
+      ] as const).map(p => (
+        <div key={p.letter} style={{ background: '#0f172a', border: `1px solid ${p.color}30`, borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <div style={{ width: 26, height: 26, borderRadius: '50%', background: p.color + '25', border: `2px solid ${p.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: p.color, fontSize: '0.85rem', flexShrink: 0 }}>{p.letter}</div>
+            <div style={{ fontWeight: 700, color: p.color, fontSize: '0.88rem' }}>{p.name}</div>
+          </div>
+          <p style={{ ...S.p, fontSize: '0.81rem', margin: '0 0 8px' }}>{p.desc}</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+            <span style={{ background: '#22c55e15', border: '1px solid #22c55e30', borderRadius: 6, padding: '3px 10px', fontSize: '0.75rem', color: '#86efac' }}>📍 Entry: {p.entry}</span>
+            <span style={{ background: '#ef444415', border: '1px solid #ef444430', borderRadius: 6, padding: '3px 10px', fontSize: '0.75rem', color: '#fca5a5' }}>🛑 SL: {p.sl}</span>
+          </div>
+          <div style={{ fontSize: '0.74rem', color: '#64748b' }}>💡 {p.signs}</div>
+        </div>
+      ))}
+
+      <div style={{ ...S.infoBox, borderColor: '#f9a8d430' }}>
+        <h4 style={{ ...S.h4, color: '#f9a8d4' }}>Nhận diện nhanh — 3 dấu hiệu tích lũy thật:</h4>
+        <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+          {([
+            { color: '#3b82f6', icon: '📉', title: 'Volume co dần', desc: 'Càng sideway lâu, volume càng giảm → áp lực bán cạn' },
+            { color: '#a78bfa', icon: '📏', title: 'Biên độ hẹp dần', desc: 'Nến ngày càng nhỏ hơn → cân bằng cung cầu' },
+            { color: '#22c55e', icon: '📈', title: 'Đáy không thấp hơn', desc: 'Người mua đang giữ giá → cầu đang hấp thụ' },
+          ] as const).map(s => (
+            <div key={s.title} style={{ flex: 1, minWidth: 120, background: s.color + '10', border: `1px solid ${s.color}30`, borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontSize: '1.1rem', marginBottom: 4 }}>{s.icon}</div>
+              <div style={{ fontWeight: 700, color: s.color, fontSize: '0.81rem', marginBottom: 3 }}>{s.title}</div>
+              <div style={{ fontSize: '0.74rem', color: '#94a3b8' }}>{s.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.tipBox}>
+        <strong>💡 Narrative + Tích lũy = xác suất cao nhất:</strong>
+        <p style={{ margin: '6px 0 0', fontSize: '0.82rem' }}>
+          Narrative bot đang bơm + Token tiềm năng chưa tăng + Chart đang tích lũy sideway dài
+          → <strong>Setup vàng</strong>. Kết hợp với Key Level Engine để tìm điểm entry chính xác.
+        </p>
+      </div>
+      <PbAttribution />
+    </article>
   );
 }
 
