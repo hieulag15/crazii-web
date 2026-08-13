@@ -257,13 +257,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Default GET: latest
-    const doc = await col.findOne({}, { sort: { scanTime: -1 } });
-    return res.json({ ok: true, data: doc ?? null });
+    // Default GET (không có ?action=): fall through để chạy scan mới
+    // Cron-job.org thường dùng GET, cho phép nó trigger scan
   }
 
-  // ── SCAN (POST) ─────────────────────────────────────────────────────────────
-  // KHÔNG cần authentication — cron-job.org gọi trực tiếp
+  // ── SCAN (GET không action hoặc POST) ──────────────────────────────────────
+  // Cron-job.org gọi GET hoặc POST đều trigger scan mới
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
