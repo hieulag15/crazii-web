@@ -20,13 +20,14 @@ import {
 import {
   getAllSignals, loadAllSignals, addSignal, updateSignal, deleteSignal,
   calculateStats, checkSignalOutcome, exportAsCSV, exportForTraining,
-  createTrackedSignal,
+  createTrackedSignal, calcPnL,
   type TrackedSignal, type TrackingStats, type SignalOutcome,
 } from '../utils/signalTracker';
 import type { Candle } from '../types/index';
 import { analyzeNewSignal, analyzePostMortem, analyzeScanResults } from '../utils/aiService';
 import NarrativePanel from '../components/NarrativePanel';
 import Footer from '../components/Footer';
+import { getCachedUser } from '../utils/authService';
 
 const GMT7_OFFSET = 7 * 3600;
 function fmtDate(ts: number) {
@@ -249,6 +250,10 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   })();
 
   const [activeTab, setActiveTab] = useState<'chart' | 'scanner' | 'signals' | 'journal' | 'mypositions' | 'narrative'>('chart');
+  // Leverage cho PnL calculator (default 1 = spot)
+  const [leverage, setLeverage] = useState<number>(() => {
+    try { return Number(localStorage.getItem('kl_leverage') || '1'); } catch { return 1; }
+  });
   const [symbol, setSymbol] = useState(savedSettings?.symbol || 'BTCUSDT');
   const [timeframe, setTimeframe] = useState(savedSettings?.timeframe || '1h');
   const [result, setResult] = useState<KeyLevelResult | null>(null);
@@ -447,7 +452,8 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
       const tracked = createTrackedSignal(
         sig, symbol, timeframe, candles, result.emaData,
-        result.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1
+        result.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1,
+        getWalletSettings()
       );
       addSignal(tracked);
       setSavedSignalIds(prev => new Set([...prev, sigKey]));
@@ -643,7 +649,8 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
             if (!savedSignalIds.has(sigKey)) {
               const tracked = createTrackedSignal(
                 topSignal, coin.value, '4h', data, analysis.emaData,
-                analysis.volumeAnalysis[data.length - 1]?.volumeRatio ?? 1
+                analysis.volumeAnalysis[data.length - 1]?.volumeRatio ?? 1,
+                getWalletSettings()
               );
               addSignal(tracked);
               setSavedSignalIds(prev => new Set([...prev, sigKey]));
@@ -731,6 +738,17 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
   const coinLabel = COIN_LIST.find(c => c.value === symbol)?.label || symbol;
 
+  // Lấy wallet settings từ cached user để tính PnL
+  const getWalletSettings = useCallback(() => {
+    const user = getCachedUser();
+    return {
+      walletBalance:   user?.settings?.walletBalance   ?? 300,
+      riskPerTrade:    user?.settings?.riskPerTrade     ?? 2,
+      maxLossPerTrade: user?.settings?.maxLossPerTrade  ?? 10,
+      leverage,
+    };
+  }, [leverage]);
+
   // Save signal to journal
   const handleSaveSignal = useCallback((sig: KeyLevelSignal) => {
     const sigKey = `${symbol}_${sig.time}_${sig.side}`;
@@ -738,12 +756,13 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
     const tracked = createTrackedSignal(
       sig, symbol, timeframe, candles, result!.emaData,
-      result!.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1
+      result!.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1,
+      getWalletSettings()
     );
     addSignal(tracked);
     setSavedSignalIds(prev => new Set([...prev, sigKey]));
     refreshJournal();
-  }, [symbol, timeframe, candles, result, savedSignalIds, refreshJournal]);
+  }, [symbol, timeframe, candles, result, savedSignalIds, refreshJournal, getWalletSettings]);
 
   // AI Analysis - show popup
   const handleAIAnalyze = useCallback(async (sig: KeyLevelSignal) => {
@@ -1413,10 +1432,29 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
         {/* ===== SIGNALS ===== */}
         {activeTab === 'signals' && (
           <div style={S.panel}>
+            {/* Leverage + PnL calculator bar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, background: '#0f172a', border: '1px solid #1e2d4a', borderRadius: 8, padding: '8px 12px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>⚡ Đòn bẩy:</span>
+              {[1, 2, 3, 5, 10, 20].map(lev => (
+                <button key={lev} onClick={() => { setLeverage(lev); localStorage.setItem('kl_leverage', String(lev)); }}
+                  style={{ padding: '3px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700,
+                    background: leverage === lev ? '#fbbf24' : '#1e293b', color: leverage === lev ? '#0a0e17' : '#94a3b8' }}>
+                  {lev}x
+                </button>
+              ))}
+              <span style={{ fontSize: '0.75rem', color: '#475569', marginLeft: 4 }}>
+                (Wallet: {getCachedUser()?.settings?.walletBalance ?? 300} USDT · Risk: {getCachedUser()?.settings?.riskPerTrade ?? 2}%/lệnh)
+              </span>
+            </div>
+
             <h3 style={S.sectionTitle}>🎯 Tín hiệu - {coinLabel} ({timeframe})</h3>
             {result && result.signals.length > 0 ? result.signals.slice(0, 15).map((sig, idx) => {
               const sigKey = `${symbol}_${sig.time}_${sig.side}`;
               const isSaved = savedSignalIds.has(sigKey);
+              // Tính PnL realtime với leverage hiện tại
+              const ws = getWalletSettings();
+              const pnl = calcPnL({ entry: sig.entry, sl: sig.sl, tp: sig.tp, side: sig.side,
+                walletBalance: ws.walletBalance, riskPct: ws.riskPerTrade, maxLoss: ws.maxLossPerTrade, leverage });
               return (
                 <div key={idx} style={{ ...S.signalCard, borderLeft: `4px solid ${sig.side === 'buy' ? '#22c55e' : '#ef4444'}` }}>
                   <div style={S.signalHeader}>
@@ -1449,6 +1487,17 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                     <div style={S.signalRow}><span>📈 Vol:</span> <strong>{sig.volumeConfirm ? '✅ Xác nhận' : '⚠️ Chưa'}</strong></div>
                     <div style={S.signalRow}><span>📐 Pattern:</span> <strong>{sig.pattern.name}</strong></div>
                   </div>
+                  {/* PnL Calculator */}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, padding: '8px 10px', background: '#0a1628', borderRadius: 6, border: '1px solid #1e2d4a', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>⚡ {leverage}x · Size: <strong style={{ color: '#fbbf24' }}>${pnl.positionSize.toFixed(0)}</strong></span>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      TP: <strong style={{ color: '#22c55e' }}>+${pnl.pnlTP.toFixed(2)}</strong>
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      SL: <strong style={{ color: '#ef4444' }}>${pnl.pnlSL.toFixed(2)}</strong>
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Risk: <strong style={{ color: '#fbbf24' }}>${pnl.riskUSD.toFixed(2)}</strong></span>
+                  </div>
                   <div style={S.signalReason}>{sig.reason}</div>
                   <div style={S.signalTime}>{fmtDate((sig.time + GMT7_OFFSET) * 1000)}</div>
                   {aiAnalysis[sigKey] && (
@@ -1458,7 +1507,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                   )}
                 </div>
               );
-            }) : <div style={S.emptyState}>Chưa có tín hiệu nào đủ điều kiện (≥55% confidence, R:R ≥ 1.5)</div>}
+            }) : <div style={S.emptyState}>Chưa có tín hiệu nào đủ điều kiện (≥75% confidence, R:R ≥ 1.5)</div>}
           </div>
         )}
 
@@ -1481,6 +1530,14 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                   <div style={S.statLabel}>Total R</div>
                   <div style={{ ...S.statValue, color: stats.totalR >= 0 ? '#22c55e' : '#ef4444' }}>+{stats.totalR.toFixed(1)}R</div>
                 </div>
+                {stats.totalPnL !== 0 && (
+                  <div style={{ ...S.statCard, borderColor: stats.totalPnL >= 0 ? '#22c55e40' : '#ef444440' }}>
+                    <div style={S.statLabel}>💰 PnL (USD)</div>
+                    <div style={{ ...S.statValue, color: stats.totalPnL >= 0 ? '#22c55e' : '#ef4444', fontSize: '1.1rem' }}>
+                      {stats.totalPnL >= 0 ? '+' : ''}${stats.totalPnL.toFixed(2)}
+                    </div>
+                  </div>
+                )}
                 <div style={{ ...S.statCard, borderColor: '#22c55e40' }}>
                   <div style={S.statLabel}>✅ TP</div>
                   <div style={{ ...S.statValue, color: '#22c55e' }}>{stats.wins}</div>
@@ -1586,6 +1643,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                               {sig.rAchieved >= 0 ? '+' : ''}{sig.rAchieved.toFixed(2)}R
                             </span>
                           )}
+                          {(sig as any).pnlCurrent != null && (
+                            <span style={{ color: (sig as any).pnlCurrent >= 0 ? '#22c55e' : '#ef4444', fontWeight: 'bold', fontSize: '0.85rem', background: (sig as any).pnlCurrent >= 0 ? '#22c55e15' : '#ef444415', padding: '1px 8px', borderRadius: 6, border: `1px solid ${(sig as any).pnlCurrent >= 0 ? '#22c55e30' : '#ef444430'}` }}>
+                              💰 {(sig as any).pnlCurrent >= 0 ? '+' : ''}${(sig as any).pnlCurrent.toFixed(2)}
+                            </span>
+                          )}
                         </div>
                         <div style={{ display: 'flex', gap: '6px' }}>
                           {sig.outcome === 'pending' && (
@@ -1626,6 +1688,19 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                         <span>TP: <strong style={{ color: '#22c55e' }}>${fmtPrice(sig.tp)}</strong></span>
                         <span>Conf: <strong>{sig.confidence}%</strong></span>
                         <span>Vol: <strong>{sig.volumeConfirm ? '✅' : '⚠️'}</strong></span>
+                        {(sig as any).leverage && (sig as any).leverage > 1 && (
+                          <span style={{ color: '#fbbf24' }}>⚡ {(sig as any).leverage}x</span>
+                        )}
+                        {(sig as any).riskUSD != null && (
+                          <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Risk: ${(sig as any).riskUSD}</span>
+                        )}
+                        {(sig as any).pnlTP != null && sig.outcome === 'pending' && (
+                          <span style={{ fontSize: '0.78rem' }}>
+                            <span style={{ color: '#22c55e' }}>TP≈+${(sig as any).pnlTP?.toFixed(2)}</span>
+                            {' / '}
+                            <span style={{ color: '#ef4444' }}>SL≈${(sig as any).pnlSL?.toFixed(2)}</span>
+                          </span>
+                        )}
                         <span style={{ color: '#64748b', fontSize: '0.8rem' }}>🕐 {fmtDate(((sig as any).time ? (sig as any).time * 1000 : sig.createdAt))}</span>
                         {sig.closedAt && <span style={{ color: sig.rAchieved && sig.rAchieved > 0 ? '#22c55e' : '#ef4444', fontSize: '0.8rem' }}>🔒 {fmtDate(sig.closedAt)}</span>}
                       </div>
