@@ -27,6 +27,10 @@ export interface UserSettings {
   telegramEnabled: boolean;
   telegramChatId?: string;
   telegramMinConfidence: number;
+  // Wallet & Position Sizing
+  walletBalance: number;
+  riskPerTrade: number;
+  maxLossPerTrade: number;
 }
 
 /** Lấy token từ localStorage */
