@@ -257,7 +257,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     } catch { /* skip */ }
 
-    for (const symbol of COIN_LIST) {
+    // V3: Limit signals per side per H4 cycle (backtest: 18/8 có 4 SL sell liên tiếp)
+    // Khi market đảo chiều, engine tạo quá nhiều signal cùng chiều → tất cả SL cùng lúc
+    // Giới hạn tối đa 2 signal mỗi chiều mỗi chu kỳ scan
+    let buySignalsThisCycle = 0;
+    let sellSignalsThisCycle = 0;
+    const MAX_SIGNALS_PER_SIDE = 2;
+
+    // Sort watchlist theo confidence tiềm năng: BTC/ETH scan trước để làm anchor
+    const priorityCoins = ['BTCUSDT', 'ETHUSDT'];
+    const sortedCoinList = [
+      ...priorityCoins.filter(c => COIN_LIST.includes(c)),
+      ...COIN_LIST.filter(c => !priorityCoins.includes(c)),
+    ];
+
+    for (const symbol of sortedCoinList) {
       try {
         const candles = await fetchCandles(symbol);
         if (candles.length < 50) continue;
@@ -267,6 +281,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // Lấy signal đầu tiên (mới nhất, confidence cao nhất)
         const sig = result.signals[0];
+
+        // V3: Skip nếu đã đủ signal cùng chiều trong chu kỳ này
+        // Ưu tiên BTC/ETH + coin có confidence cao (đã sort ở trên)
+        if (sig.side === 'buy' && buySignalsThisCycle >= MAX_SIGNALS_PER_SIDE) {
+          console.log(`[Auto-Scan] Skip ${symbol} BUY — đã có ${buySignalsThisCycle} lệnh BUY trong chu kỳ`);
+          continue;
+        }
+        if (sig.side === 'sell' && sellSignalsThisCycle >= MAX_SIGNALS_PER_SIDE) {
+          console.log(`[Auto-Scan] Skip ${symbol} SELL — đã có ${sellSignalsThisCycle} lệnh SELL trong chu kỳ`);
+          continue;
+        }
 
         // Filter theo BTC context (smart + momentum):
         // Backtest insight: Khi BTC giảm liên tục → sell alt win rate cao nhất
@@ -373,6 +398,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         await col.insertOne(doc);
         newSignals.push(`${symbol}: ${sig.side.toUpperCase()} ${sig.pattern.name} (${sig.confidence}%) E:${sig.entry} SL:${sig.sl.toFixed(4)} TP:${sig.tp.toFixed(4)} R:R ${sig.rr.toFixed(1)}`);
+
+        // V3: Increment same-side counter sau khi save thành công
+        if (sig.side === 'buy') buySignalsThisCycle++;
+        else sellSignalsThisCycle++;
 
         // AI đánh giá signal mới (nếu có GROQ_API_KEY)
         if (process.env.GROQ_API_KEY) {

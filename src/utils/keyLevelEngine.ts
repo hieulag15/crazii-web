@@ -561,9 +561,10 @@ export function generateSignals(
     // RULE 3: Wick PHẢI chạm level — tolerance nghiêm ngặt hơn
     // Data: 71% lệnh thua do wick không chạm level
     // Key Level tĩnh: tolerance 0.2% (chặt)
-    // EMA động: tolerance 0.5% (nới hơn vì EMA di chuyển)
+    // V3 (backtest 60 trades): EMA tolerance từ 0.5% → 0.3% (giảm signal giả)
+    // Data: 70% lệnh thua có "wick không chạm level" — EMA quá rộng làm engine match sai
     const isEmaLevel = nearLevel.strength <= 3; // EMA-based level có strength thấp hơn
-    const touchTolerance = nearLevel.price * (isEmaLevel ? 0.005 : 0.002);
+    const touchTolerance = nearLevel.price * (isEmaLevel ? 0.003 : 0.002);
     const wickTouched = side === 'buy'
       ? c.low <= nearLevel.price + touchTolerance
       : c.high >= nearLevel.price - touchTolerance;
@@ -640,9 +641,11 @@ export function generateSignals(
     // ===== CẢI THIỆN #2: SL = swing low/high 5 nến + buffer % (phù hợp mọi coin) =====
     const slLookback = 5;
     let sl: number;
-    // Buffer = max(0.5% giá, 30% thân nến) — coin nhỏ cần buffer % lớn hơn
-    const percentBuffer = price * 0.005; // 0.5% giá
-    const candleBuffer = (c.high - c.low) * 0.3;
+    // V3: Buffer tăng từ 0.5% → 0.8% + 40% candle range
+    // Data: AI review nhắc lặp đi lặp lại "SL quá gần, bị stop-out sớm"
+    // Buffer lớn hơn giúp tránh noise, nhất là với altcoin volatile
+    const percentBuffer = price * 0.008; // 0.8% giá (tăng từ 0.5%)
+    const candleBuffer = (c.high - c.low) * 0.4; // 40% candle range (tăng từ 30%)
     const buffer = Math.max(percentBuffer, candleBuffer);
 
     if (side === 'buy') {
