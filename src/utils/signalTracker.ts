@@ -359,7 +359,9 @@ export function calcPnL(params: {
   const positionSize = slDistPct > 0 ? riskUSD / slDistPct : 0;
 
   const tpDistPct = Math.abs(params.tp - params.entry) / params.entry;
-  const pnlTP = positionSize * tpDistPct * lev;
+  // positionSize = riskUSD / slDistPct đã là notional đầy đủ (leverage baked-in)
+  // Không nhân lev thêm lần nữa, nếu không pnlTP sẽ bị nhân leverage hai lần
+  const pnlTP = positionSize * tpDistPct;
   const pnlSL = -riskUSD; // lỗ tối đa = riskUSD (leverage không thay đổi risk amount)
   const rr = slDistPct > 0 ? tpDistPct / slDistPct : 0;
 

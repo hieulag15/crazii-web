@@ -939,6 +939,18 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     const sigKey = `${item.symbol}_${sig.time}_${sig.side}`;
     if (savedSignalIds.has(sigKey)) return;
 
+    const ws = getWalletSettings();
+    const pnlCalc = calcPnL({
+      entry: sig.entry,
+      sl: sig.sl,
+      tp: sig.tp1,
+      side: sig.side,
+      walletBalance: ws.walletBalance,
+      riskPct: ws.riskPerTrade,
+      maxLoss: ws.maxLossPerTrade,
+      leverage: ws.leverage,
+    });
+
     const tracked: TrackedSignal = {
       id: `${item.symbol}_${sig.time}_${sig.side}_${Date.now()}`,
       createdAt: Date.now(),
@@ -963,6 +975,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       maxAdverse: sig.entry,
       notes: '🔍 Từ Full Market Scan',
       tags: ['full-scan'],
+      leverage: ws.leverage,
+      riskUSD: parseFloat(pnlCalc.riskUSD.toFixed(2)),
+      positionSize: parseFloat(pnlCalc.positionSize.toFixed(2)),
+      pnlTP: parseFloat(pnlCalc.pnlTP.toFixed(2)),
+      pnlSL: parseFloat(pnlCalc.pnlSL.toFixed(2)),
       marketContext: {
         ema34: 0, ema89: 0, ema200: 0, volumeRatio: 0, prevCandles: [],
       },
@@ -970,7 +987,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     addSignal(tracked);
     setSavedSignalIds(prev => new Set([...prev, sigKey]));
     refreshJournal();
-  }, [savedSignalIds, refreshJournal]);
+  }, [savedSignalIds, refreshJournal, getWalletSettings]);
 
 
   const trendBadge = (dir: TrendDirection) => {
@@ -1488,16 +1505,27 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                     <div style={S.signalRow}><span>📐 Pattern:</span> <strong>{sig.pattern.name}</strong></div>
                   </div>
                   {/* PnL Calculator */}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8, padding: '8px 10px', background: '#0a1628', borderRadius: 6, border: '1px solid #1e2d4a', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>⚡ {leverage}x · Size: <strong style={{ color: '#fbbf24' }}>${pnl.positionSize.toFixed(0)}</strong></span>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                      TP: <strong style={{ color: '#22c55e' }}>+${pnl.pnlTP.toFixed(2)}</strong>
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                      SL: <strong style={{ color: '#ef4444' }}>${pnl.pnlSL.toFixed(2)}</strong>
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Risk: <strong style={{ color: '#fbbf24' }}>${pnl.riskUSD.toFixed(2)}</strong></span>
-                  </div>
+                  {(() => {
+                    const margin = pnl.positionSize / leverage;
+                    return (
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, padding: '8px 10px', background: '#0a1628', borderRadius: 6, border: '1px solid #1e2d4a', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          Vào lệnh: <strong style={{ color: '#60a5fa' }}>${margin.toFixed(2)}</strong>
+                          <span style={{ color: '#475569', margin: '0 3px' }}>×</span>
+                          <strong style={{ color: '#fbbf24' }}>{leverage}x</strong>
+                          <span style={{ color: '#475569', margin: '0 3px' }}>=</span>
+                          <strong style={{ color: '#93c5fd' }}>${pnl.positionSize.toFixed(2)}</strong>
+                        </span>
+                        <span style={{ color: '#334155', fontSize: '0.75rem' }}>|</span>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          SL <strong style={{ color: '#ef4444' }}>${pnl.pnlSL.toFixed(2)}</strong>
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          TP <strong style={{ color: '#22c55e' }}>+${pnl.pnlTP.toFixed(2)}</strong>
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <div style={S.signalReason}>{sig.reason}</div>
                   <div style={S.signalTime}>{fmtDate((sig.time + GMT7_OFFSET) * 1000)}</div>
                   {aiAnalysis[sigKey] && (
@@ -1693,6 +1721,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                         )}
                         {(sig as any).riskUSD != null && (
                           <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Risk: ${(sig as any).riskUSD}</span>
+                        )}
+                        {(sig as any).positionSize != null && (
+                          <span style={{ color: '#60a5fa', fontSize: '0.78rem' }}>Vào lệnh: ${(sig as any).positionSize?.toFixed(2)}</span>
                         )}
                         {(sig as any).pnlTP != null && sig.outcome === 'pending' && (
                           <span style={{ fontSize: '0.78rem' }}>
