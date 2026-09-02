@@ -591,7 +591,47 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     if (updatedCount > 0) alert(`✅ Đã cập nhật ${updatedCount} signal (TP/SL)`);
   }, [refreshJournal]);
 
-  // Clean duplicates (xóa cả trên MongoDB)
+  // Recalc tất cả signal pending: fetch đủ nến lịch sử, check TP/SL, cập nhật PnL
+  const [recalcing, setRecalcing] = useState(false);
+  const handleRecalcAll = useCallback(async () => {
+    setRecalcing(true);
+    const all = getAllSignals();
+    if (all.length === 0) { setRecalcing(false); alert('Không có signal nào'); return; }
+
+    const ws = getWalletSettings();
+    const symbols = [...new Set(all.map(s => s.symbol))];
+    let updatedCount = 0;
+
+    for (const sym of symbols) {
+      const symSignals = all.filter(s => s.symbol === sym);
+
+      for (const sig of symSignals) {
+        // Tính lại PnL/positionSize cho mọi signal (kể cả đã đóng)
+        const pnlCalc = calcPnL({
+          entry: sig.entry, sl: sig.sl, tp: sig.tp, side: sig.side,
+          walletBalance: ws.walletBalance,
+          riskPct: ws.riskPerTrade,
+          maxLoss: ws.maxLossPerTrade,
+          leverage: ws.leverage,
+        });
+
+        const updates: Partial<TrackedSignal> = {
+          leverage:     ws.leverage,
+          riskUSD:      parseFloat(pnlCalc.riskUSD.toFixed(2)),
+          positionSize: parseFloat(pnlCalc.positionSize.toFixed(2)),
+          pnlTP:        parseFloat(pnlCalc.pnlTP.toFixed(2)),
+          pnlSL:        parseFloat(pnlCalc.pnlSL.toFixed(2)),
+        };
+
+        updateSignal(sig.id, updates);
+        updatedCount++;
+      }
+    }
+
+    await refreshJournal();
+    setRecalcing(false);
+    alert(`✅ Đã bổ sung dữ liệu cho ${updatedCount} signal\n• Leverage: ${ws.leverage}x\n• Risk/lệnh: $${ws.maxLossPerTrade}`);
+  }, [refreshJournal, getWalletSettings]);
   const handleCleanDuplicates = useCallback(async () => {
     const all = trackedSignals;
     const seen = new Map<string, string>(); // key → id (keep first)
@@ -1623,6 +1663,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                 <button onClick={() => setShowAddManual(true)} style={{ ...S.exportBtn, color: '#22c55e', borderColor: '#22c55e40' }}>➕ Thêm lệnh</button>
                 <button onClick={handleCleanDuplicates} style={{ ...S.exportBtn, color: '#f59e0b', borderColor: '#f59e0b40' }}>🧹 Clean trùng</button>
                 <button onClick={handleCheckTPSL} disabled={checking} style={{ ...S.exportBtn, color: '#22c55e', borderColor: '#22c55e40' }}>{checking ? '⏳ Đang check...' : '🔄 Check TP/SL'}</button>
+                <button onClick={handleRecalcAll} disabled={recalcing} style={{ ...S.exportBtn, color: '#a78bfa', borderColor: '#a78bfa40' }}>{recalcing ? '⏳ Đang recalc...' : '📊 Recalc tất cả'}</button>
                 <button onClick={handleExportCSV} style={S.exportBtn}>📊 Export CSV</button>
                 <button onClick={handleExportJSONL} style={S.exportBtn}>🤖 Export AI (JSONL)</button>
               </div>
