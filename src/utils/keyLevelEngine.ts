@@ -656,22 +656,40 @@ export function generateSignals(
       sl = swingHigh + buffer;
     }
 
-    // Tính TP: Key level kế tiếp phía giá đang đi (S/R thực)
-    // Ưu tiên key level, fallback sang EMA, cuối cùng ATR
-    const nextKeyLevel = findNextLevel(price, keyLevels, side === 'buy' ? 'up' : 'down');
-    const nextEma = side === 'buy'
-      ? [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]].filter(e => e > price * 1.003).sort((a, b) => a - b)[0]
-      : [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]].filter(e => e < price * 0.997).sort((a, b) => b - a)[0];
+    // Tính TP: Cản gần nhất phía giá đang đi, tối đa 5% để tránh TP quá xa
+    // Thứ tự ưu tiên: key level gần nhất → EMA gần nhất → fallback 2x risk
+    // "Gần nhất" = nhỏ nhất khoảng cách nhưng vẫn đủ RR (>= 1.5x risk)
+    const minRiskForRR = Math.abs(price - sl) * 1.5;
+    const maxTpDist = price * 0.05; // Không để TP quá 5% từ entry
+
+    // Lấy TẤT CẢ key levels phía đúng hướng, filter gần nhất + đủ RR
+    const candidateLevels = keyLevels
+      .filter(lv => {
+        if (side === 'buy') return lv.price > price * 1.002 && lv.price - price >= minRiskForRR && lv.price - price <= maxTpDist;
+        return lv.price < price * 0.998 && price - lv.price >= minRiskForRR && price - lv.price <= maxTpDist;
+      })
+      .sort((a, b) => side === 'buy' ? a.price - b.price : b.price - a.price); // gần nhất trước
+
+    const nearestKeyLevel = candidateLevels[0]?.price ?? null;
+
+    // EMA phía đúng hướng, cũng lọc tối đa 5%
+    const candidateEmas = [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]].filter(e => {
+      if (side === 'buy') return e > price * 1.003 && e - price >= minRiskForRR && e - price <= maxTpDist;
+      return e < price * 0.997 && price - e >= minRiskForRR && price - e <= maxTpDist;
+    }).sort((a, b) => side === 'buy' ? a - b : b - a);
+    const nearestEma = candidateEmas[0] ?? null;
 
     let tp: number;
-    if (nextKeyLevel) {
-      tp = nextKeyLevel;
-    } else if (nextEma) {
-      tp = nextEma;
+    if (nearestKeyLevel) {
+      tp = nearestKeyLevel;
+    } else if (nearestEma) {
+      tp = nearestEma;
     } else {
-      // Fallback: ATR-based (2x risk)
+      // Fallback: 2x risk, nhưng cap ở 5%
       const risk = Math.abs(price - sl);
-      tp = side === 'buy' ? price + risk * 2 : price - risk * 2;
+      const raw = side === 'buy' ? price + risk * 2 : price - risk * 2;
+      if (side === 'buy') tp = Math.min(raw, price * 1.05);
+      else                tp = Math.max(raw, price * 0.95);
     }
 
     const rr = Math.abs(tp - price) / Math.abs(price - sl);

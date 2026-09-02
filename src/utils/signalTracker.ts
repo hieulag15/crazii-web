@@ -323,15 +323,35 @@ export function exportForTraining(): string {
 // ============================================================
 
 /**
- * Tính PnL cho lệnh dựa trên wallet settings và đòn bẩy
+ * Đề xuất leverage tối ưu dựa trên khoảng cách SL (slDist%).
  *
- * Công thức futures:
- *   riskUSD    = min(walletBalance × riskPct / 100, maxLoss)
- *   posSize    = riskUSD / (|entry - sl| / entry)  [= số USDT position]
- *   posSize    × leverage = không cần (risk đã cố định)
- *   pnlTP      = posSize × |(tp - entry)| / entry
- *   pnlSL      = -riskUSD
+ * Nguyên tắc: SL càng xa → leverage càng thấp để giữ risk cố định.
+ * Giới hạn max leverage theo volatility thực tế của coin:
+ *   - BTC/ETH (slDist < 1.5%): đến 20x
+ *   - Mid-cap (1.5–3%):        đến 10x
+ *   - Altcoin (3–5%):          đến 5x
+ *   - Volatile (5–8%):         đến 3x
+ *   - Cực volatile (>8%):      2x
+ * Luôn làm tròn xuống bội số đẹp để dễ đặt lệnh thực tế.
  */
+export function recommendLeverage(slDistPct: number): number {
+  if (slDistPct <= 0) return 1;
+
+  // Max leverage theo volatility bracket
+  let maxLev: number;
+  if (slDistPct < 1.5)      maxLev = 20;
+  else if (slDistPct < 2.5) maxLev = 15;
+  else if (slDistPct < 3.5) maxLev = 10;
+  else if (slDistPct < 5.0) maxLev = 5;
+  else if (slDistPct < 8.0) maxLev = 3;
+  else                       maxLev = 2;
+
+  // Làm tròn xuống bội số đẹp: 20,15,10,5,3,2,1
+  const STEPS = [20, 15, 10, 5, 3, 2, 1];
+  return STEPS.find(s => s <= maxLev) ?? 1;
+}
+
+
 export function calcPnL(params: {
   entry: number;
   sl: number;

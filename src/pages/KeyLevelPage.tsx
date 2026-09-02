@@ -20,7 +20,7 @@ import {
 import {
   getAllSignals, loadAllSignals, addSignal, updateSignal, deleteSignal,
   calculateStats, checkSignalOutcome, exportAsCSV, exportForTraining,
-  createTrackedSignal, calcPnL,
+  createTrackedSignal, calcPnL, recommendLeverage,
   type TrackedSignal, type TrackingStats, type SignalOutcome,
 } from '../utils/signalTracker';
 import type { Candle } from '../types/index';
@@ -450,10 +450,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       const sigKey = `${symbol}_${sig.time}_${sig.side}`;
       if (savedSignalIds.has(sigKey)) continue;
 
+      const slDistPct = Math.abs(sig.entry - sig.sl) / sig.entry * 100;
       const tracked = createTrackedSignal(
         sig, symbol, timeframe, candles, result.emaData,
         result.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1,
-        getWalletSettings()
+        getWalletSettings(slDistPct)
       );
       addSignal(tracked);
       setSavedSignalIds(prev => new Set([...prev, sigKey]));
@@ -646,10 +647,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           if (topSignal) {
             const sigKey = `${coin.value}_${topSignal.time}_${topSignal.side}`;
             if (!savedSignalIds.has(sigKey)) {
+              const slDistPct = Math.abs(topSignal.entry - topSignal.sl) / topSignal.entry * 100;
               const tracked = createTrackedSignal(
                 topSignal, coin.value, '4h', data, analysis.emaData,
                 analysis.volumeAnalysis[data.length - 1]?.volumeRatio ?? 1,
-                getWalletSettings()
+                getWalletSettings(slDistPct)
               );
               addSignal(tracked);
               setSavedSignalIds(prev => new Set([...prev, sigKey]));
@@ -738,13 +740,15 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const coinLabel = COIN_LIST.find(c => c.value === symbol)?.label || symbol;
 
   // Lấy wallet settings từ cached user để tính PnL
-  const getWalletSettings = useCallback(() => {
+  // leverage: dynamic per signal (recommendLeverage) nếu không truyền override
+  const getWalletSettings = useCallback((slDistPct?: number) => {
     const user = getCachedUser();
+    const lev = slDistPct != null ? recommendLeverage(slDistPct) : leverage;
     return {
       walletBalance:   user?.settings?.walletBalance   ?? 300,
       riskPerTrade:    user?.settings?.riskPerTrade     ?? 2,
       maxLossPerTrade: user?.settings?.maxLossPerTrade  ?? 10,
-      leverage,
+      leverage: lev,
     };
   }, [leverage]);
 
@@ -755,20 +759,23 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     const all = getAllSignals();
     if (all.length === 0) { setRecalcing(false); alert('Không có signal nào'); return; }
 
-    const ws = getWalletSettings();
+    const baseWs = getWalletSettings();
     let updatedCount = 0;
 
     for (const sig of all) {
+      // Dynamic leverage per signal
+      const slDistPct = Math.abs(sig.entry - sig.sl) / sig.entry * 100;
+      const dynLev = recommendLeverage(slDistPct);
       const pnlCalc = calcPnL({
         entry: sig.entry, sl: sig.sl, tp: sig.tp, side: sig.side,
-        walletBalance: ws.walletBalance,
-        riskPct: ws.riskPerTrade,
-        maxLoss: ws.maxLossPerTrade,
-        leverage: ws.leverage,
+        walletBalance: baseWs.walletBalance,
+        riskPct: baseWs.riskPerTrade,
+        maxLoss: baseWs.maxLossPerTrade,
+        leverage: dynLev,
       });
 
       updateSignal(sig.id, {
-        leverage:     ws.leverage,
+        leverage:     dynLev,
         riskUSD:      parseFloat(pnlCalc.riskUSD.toFixed(2)),
         positionSize: parseFloat(pnlCalc.positionSize.toFixed(2)),
         pnlTP:        parseFloat(pnlCalc.pnlTP.toFixed(2)),
@@ -779,7 +786,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
     await refreshJournal();
     setRecalcing(false);
-    alert(`✅ Đã bổ sung dữ liệu cho ${updatedCount} signal\n• Leverage: ${ws.leverage}x\n• Risk/lệnh: $${ws.maxLossPerTrade}`);
+    alert(`✅ Đã bổ sung dữ liệu cho ${updatedCount} signal (dynamic leverage theo slDist%)`);
   }, [refreshJournal, getWalletSettings]);
 
   // Save signal to journal
@@ -787,10 +794,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     const sigKey = `${symbol}_${sig.time}_${sig.side}`;
     if (savedSignalIds.has(sigKey)) return;
 
+    const slDistPct = Math.abs(sig.entry - sig.sl) / sig.entry * 100;
     const tracked = createTrackedSignal(
       sig, symbol, timeframe, candles, result!.emaData,
       result!.volumeAnalysis[candles.length - 1]?.volumeRatio ?? 1,
-      getWalletSettings()
+      getWalletSettings(slDistPct)
     );
     addSignal(tracked);
     setSavedSignalIds(prev => new Set([...prev, sigKey]));
@@ -972,7 +980,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     const sigKey = `${item.symbol}_${sig.time}_${sig.side}`;
     if (savedSignalIds.has(sigKey)) return;
 
-    const ws = getWalletSettings();
+    const ws = getWalletSettings(Math.abs(sig.entry - sig.sl) / sig.entry * 100);
     const pnlCalc = calcPnL({
       entry: sig.entry,
       sl: sig.sl,
@@ -1501,10 +1509,12 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
             {result && result.signals.length > 0 ? result.signals.slice(0, 15).map((sig, idx) => {
               const sigKey = `${symbol}_${sig.time}_${sig.side}`;
               const isSaved = savedSignalIds.has(sigKey);
-              // Tính PnL realtime với leverage hiện tại
-              const ws = getWalletSettings();
+              // Tính PnL realtime với leverage dynamic (dựa slDist%)
+              const slDistPct = Math.abs(sig.entry - sig.sl) / sig.entry * 100;
+              const dynLeverage = recommendLeverage(slDistPct);
+              const ws = getWalletSettings(slDistPct);
               const pnl = calcPnL({ entry: sig.entry, sl: sig.sl, tp: sig.tp, side: sig.side,
-                walletBalance: ws.walletBalance, riskPct: ws.riskPerTrade, maxLoss: ws.maxLossPerTrade, leverage });
+                walletBalance: ws.walletBalance, riskPct: ws.riskPerTrade, maxLoss: ws.maxLossPerTrade, leverage: dynLeverage });
               return (
                 <div key={idx} style={{ ...S.signalCard, borderLeft: `4px solid ${sig.side === 'buy' ? '#22c55e' : '#ef4444'}` }}>
                   <div style={S.signalHeader}>
@@ -1539,13 +1549,13 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                   </div>
                   {/* PnL Calculator */}
                   {(() => {
-                    const margin = pnl.positionSize / leverage;
+                    const margin = pnl.positionSize / dynLeverage;
                     return (
                       <div style={{ display: 'flex', gap: 8, marginTop: 8, padding: '8px 10px', background: '#0a1628', borderRadius: 6, border: '1px solid #1e2d4a', flexWrap: 'wrap', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
                           Vào lệnh: <strong style={{ color: '#60a5fa' }}>${margin.toFixed(2)}</strong>
                           <span style={{ color: '#475569', margin: '0 3px' }}>×</span>
-                          <strong style={{ color: '#fbbf24' }}>{leverage}x</strong>
+                          <strong style={{ color: '#fbbf24' }}>{dynLeverage}x</strong>
                           <span style={{ color: '#475569', margin: '0 3px' }}>=</span>
                           <strong style={{ color: '#93c5fd' }}>${pnl.positionSize.toFixed(2)}</strong>
                         </span>
@@ -1756,14 +1766,25 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                         {(sig as any).riskUSD != null && (
                           <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Risk: ${(sig as any).riskUSD}</span>
                         )}
-                        {(sig as any).positionSize != null && (
-                          <span style={{ color: '#60a5fa', fontSize: '0.78rem' }}>Vào lệnh: ${(sig as any).positionSize?.toFixed(2)}</span>
-                        )}
-                        {(sig as any).pnlTP != null && sig.outcome === 'pending' && (
+                        {(sig as any).positionSize != null && (sig as any).leverage != null && (() => {
+                          const lev = (sig as any).leverage as number;
+                          const notional = (sig as any).positionSize as number;
+                          const margin = notional / lev;
+                          return (
+                            <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                              Vào: <strong style={{ color: '#60a5fa' }}>${margin.toFixed(2)}</strong>
+                              <span style={{ color: '#475569', margin: '0 2px' }}>×</span>
+                              <strong style={{ color: '#fbbf24' }}>{lev}x</strong>
+                              <span style={{ color: '#475569', margin: '0 2px' }}>=</span>
+                              <strong style={{ color: '#93c5fd' }}>${notional.toFixed(2)}</strong>
+                            </span>
+                          );
+                        })()}
+                        {(sig as any).pnlTP != null && (
                           <span style={{ fontSize: '0.78rem' }}>
-                            <span style={{ color: '#22c55e' }}>TP≈+${(sig as any).pnlTP?.toFixed(2)}</span>
+                            <span style={{ color: '#22c55e' }}>TP {sig.outcome === 'tp' ? '✅' : '≈'}+${(sig as any).pnlTP?.toFixed(2)}</span>
                             {' / '}
-                            <span style={{ color: '#ef4444' }}>SL≈${(sig as any).pnlSL?.toFixed(2)}</span>
+                            <span style={{ color: '#ef4444' }}>SL {sig.outcome === 'sl' ? '❌' : '≈'}${(sig as any).pnlSL?.toFixed(2)}</span>
                           </span>
                         )}
                         <span style={{ color: '#64748b', fontSize: '0.8rem' }}>🕐 {fmtDate(((sig as any).time ? (sig as any).time * 1000 : sig.createdAt))}</span>
