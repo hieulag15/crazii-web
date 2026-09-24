@@ -29,7 +29,7 @@ async function getAllUSDTPairs(): Promise<string[]> {
 
 /** Fetch H4 candles cho 1 symbol */
 async function fetchCandles(symbol: string): Promise<Candle[]> {
-  const url = `${BINANCE_FAPI}/klines?symbol=${symbol}&interval=4h&limit=100`;
+  const url = `${BINANCE_FAPI}/klines?symbol=${symbol}&interval=4h&limit=200`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();
@@ -55,8 +55,8 @@ async function processBatch(symbols: string[]): Promise<any[]> {
       const result = calculateKeyLevelSystem(candles);
       if (result.signals.length === 0) return;
 
-      // Lấy signals có confidence >= 60%
-      const validSignals = result.signals.filter(sig => sig.confidence >= 60);
+      // Lấy signals có confidence >= 55%
+      const validSignals = result.signals.filter(sig => sig.confidence >= 55);
       if (validSignals.length === 0) return;
 
       const lastPrice = candles[candles.length - 1].close;
@@ -101,7 +101,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // GET = Đọc kết quả scan gần nhất (không scan lại)
     if (req.method === 'GET') {
-      const minConfidence = parseInt(req.query.minConfidence as string) || 60;
+      const minConfidence = parseInt(req.query.minConfidence as string) || 55;
       const limit = Math.min(parseInt(req.query.limit as string) || 30, 100);
 
       const results = await col.find({}).toArray();

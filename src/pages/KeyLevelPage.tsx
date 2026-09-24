@@ -1339,20 +1339,39 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                   <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '6px' }}>${fmtPrice(sr.lastPrice)}</div>
                   {sr.signals.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {sr.signals.slice(0, 1).map((sig, i) => (
-                        <div key={i} style={{ background: sig.side === 'buy' ? '#22c55e08' : '#ef444408', border: `1px solid ${sig.side === 'buy' ? '#22c55e30' : '#ef444430'}`, borderRadius: '6px', padding: '6px 8px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                            <span style={{ color: sig.side === 'buy' ? '#22c55e' : '#ef4444', fontWeight: 'bold', fontSize: '0.82rem' }}>{sig.side === 'buy' ? '🟢 BUY' : '🔴 SELL'}</span>
-                            <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>{sig.confidence}% | R:R {sig.rr.toFixed(1)}</span>
+                      {sr.signals.slice(0, 1).map((sig, i) => {
+                        const slDistPct = Math.abs(sig.entry - sig.sl) / sig.entry * 100;
+                        const dynLev = recommendLeverage(slDistPct);
+                        const ws = getWalletSettings(slDistPct);
+                        const pnl = calcPnL({ entry: sig.entry, sl: sig.sl, tp: sig.tp, side: sig.side, walletBalance: ws.walletBalance, riskPct: ws.riskPerTrade, maxLoss: ws.maxLossPerTrade, leverage: dynLev });
+                        const margin = pnl.positionSize / dynLev;
+                        return (
+                          <div key={i} style={{ background: sig.side === 'buy' ? '#22c55e08' : '#ef444408', border: `1px solid ${sig.side === 'buy' ? '#22c55e30' : '#ef444430'}`, borderRadius: '6px', padding: '6px 8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <span style={{ color: sig.side === 'buy' ? '#22c55e' : '#ef4444', fontWeight: 'bold', fontSize: '0.82rem' }}>{sig.side === 'buy' ? '🟢 BUY' : '🔴 SELL'}</span>
+                              <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>{sig.confidence}% | R:R {sig.rr.toFixed(1)}</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '2px', fontSize: '0.7rem', color: '#94a3b8' }}>
+                              <span>E: <strong style={{ color: '#e2e8f0' }}>{fmtPrice(sig.entry)}</strong></span>
+                              <span>SL: <strong style={{ color: '#ef4444' }}>{fmtPrice(sig.sl)}</strong></span>
+                              <span>TP: <strong style={{ color: '#22c55e' }}>{fmtPrice(sig.tp)}</strong></span>
+                            </div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '3px' }}>{sig.pattern.name}</div>
+                            {/* PnL row */}
+                            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '5px', paddingTop: '5px', borderTop: '1px solid #1e2d4a', fontSize: '0.68rem', alignItems: 'center' }}>
+                              <span style={{ color: '#94a3b8' }}>
+                                Vào: <strong style={{ color: '#60a5fa' }}>${margin.toFixed(2)}</strong>
+                                <span style={{ color: '#475569', margin: '0 2px' }}>×</span>
+                                <strong style={{ color: '#fbbf24' }}>{dynLev}x</strong>
+                              </span>
+                              <span style={{ color: '#334155' }}>|</span>
+                              <span style={{ color: '#ef4444' }}>SL <strong>-${Math.abs(pnl.pnlSL).toFixed(2)}</strong></span>
+                              <span style={{ color: '#334155' }}>|</span>
+                              <span style={{ color: '#22c55e' }}>TP <strong>+${pnl.pnlTP.toFixed(2)}</strong></span>
+                            </div>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '2px', fontSize: '0.7rem', color: '#94a3b8' }}>
-                            <span>E: <strong style={{ color: '#e2e8f0' }}>{fmtPrice(sig.entry)}</strong></span>
-                            <span>SL: <strong style={{ color: '#ef4444' }}>{fmtPrice(sig.sl)}</strong></span>
-                            <span>TP: <strong style={{ color: '#22c55e' }}>{fmtPrice(sig.tp)}</strong></span>
-                          </div>
-                          <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '3px' }}>{sig.pattern.name}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : <div style={{ color: '#475569', fontSize: '0.8rem', fontStyle: 'italic' }}>Chưa có tín hiệu</div>}
                 </div>
@@ -1415,6 +1434,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>SL</th>
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>TP1</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left', color: '#94a3b8', fontWeight: '600' }}>Pattern</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Vào / SL / TP</th>
                           <th style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Action</th>
                         </tr>
                       </thead>
@@ -1424,6 +1444,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                           if (!topSig) return null;
                           const sigKey = `${item.symbol}_${topSig.time}_${topSig.side}`;
                           const isSaved = savedSignalIds.has(sigKey);
+                          const slDistPct = Math.abs(topSig.entry - topSig.sl) / topSig.entry * 100;
+                          const dynLev = recommendLeverage(slDistPct);
+                          const ws = getWalletSettings(slDistPct);
+                          const pnl = calcPnL({ entry: topSig.entry, sl: topSig.sl, tp: topSig.tp1, side: topSig.side, walletBalance: ws.walletBalance, riskPct: ws.riskPerTrade, maxLoss: ws.maxLossPerTrade, leverage: dynLev });
+                          const margin = pnl.positionSize / dynLev;
                           return (
                             <tr key={item.symbol} style={{ borderBottom: '1px solid #0f1a2e', cursor: 'pointer' }} onClick={() => { setSymbol(item.symbol); setActiveTab('chart'); }}>
                               <td style={{ padding: '8px 10px', fontWeight: 'bold', color: '#f1f5f9' }}>
@@ -1454,6 +1479,17 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                               </td>
                               <td style={{ padding: '8px 10px', color: '#cbd5e1', fontSize: '0.76rem' }}>
                                 {topSig.pattern}
+                              </td>
+                              <td style={{ padding: '8px 10px', fontSize: '0.72rem', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                                <span style={{ color: '#94a3b8' }}>
+                                  <strong style={{ color: '#60a5fa' }}>${margin.toFixed(2)}</strong>
+                                  <span style={{ color: '#475569', margin: '0 2px' }}>×</span>
+                                  <strong style={{ color: '#fbbf24' }}>{dynLev}x</strong>
+                                </span>
+                                <span style={{ color: '#475569', margin: '0 4px' }}>|</span>
+                                <span style={{ color: '#ef4444' }}>-${Math.abs(pnl.pnlSL).toFixed(2)}</span>
+                                <span style={{ color: '#475569', margin: '0 3px' }}>/</span>
+                                <span style={{ color: '#22c55e' }}>+${pnl.pnlTP.toFixed(2)}</span>
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                                 <button

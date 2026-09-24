@@ -1,0 +1,435 @@
+//@version=6
+// © hieulag - 2026. Indicator cá nhân: Auto Elliott Wave + Fibonacci + tham chiếu HTF.
+// Nền tảng: ZigZag (pivot) -> gán nhãn sóng 1-2-3-4-5 / A-B-C -> kiểm tra quy tắc -> Fib extension.
+// LƯU Ý: Đếm sóng tự động luôn có sai số (Elliott mang tính chủ quan). HTF có thể repaint khi nến HTF chưa đóng.
+indicator("Auto Elliott Wave + Fib BY hieulag", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=5000)
+
+// ==========================================
+// 1. INPUTS
+// ==========================================
+gZig      = "① ZigZag (Cấu trúc sóng khung hiện tại)"
+depth     = input.int(8, "Độ nhạy ZigZag (Pivot Depth)", minval=2, maxval=100, group=gZig, tooltip="Số nến trái/phải để xác nhận đỉnh/đáy. Số lớn = sóng lớn, mượt hơn.")
+minLegAtr = input.float(2.0, "Bộ lọc nhiễu: chân sóng tối thiểu (x ATR)", minval=0.0, step=0.5, group=gZig, tooltip="Bỏ qua các nhịp đảo chiều nhỏ hơn N lần ATR. Tăng lên (3-5) để gộp nhiễu, tránh sóng 3 bị 'ngắn nhất' do lẫn cấp độ sóng.")
+maxPivots = input.int(10, "Số điểm ZigZag dùng để đếm sóng", minval=6, maxval=30, group=gZig)
+showZig   = input.bool(true, "Vẽ đường ZigZag gốc", group=gZig)
+colZig    = input.color(color.new(color.gray, 40), "Màu đường ZigZag", group=gZig)
+
+gWave     = "② Nhãn sóng Elliott (Khung hiện tại)"
+showWaves = input.bool(true, "Vẽ & đánh số sóng", group=gWave)
+colImpulse= input.color(#2962ff, "Màu chân sóng đẩy (1-5)", group=gWave)
+colCorr   = input.color(#e91e63, "Màu chân sóng điều chỉnh (A-B-C)", group=gWave)
+colLabel  = input.color(#ff9800, "Màu nền nhãn số sóng", group=gWave)
+
+gFib      = "③ Fibonacci Extension (Mục tiêu sóng)"
+showFib   = input.bool(true, "Vẽ mục tiêu Fib cho sóng đang hình thành", group=gFib)
+colFib    = input.color(color.new(#00bcd4, 0), "Màu đường Fib mục tiêu", group=gFib)
+fibRight  = input.int(20, "Độ dài kéo dài đường Fib (nến)", minval=5, maxval=100, group=gFib)
+
+gHtf      = "④ Tham chiếu Khung Lớn (HTF)"
+showHtf   = input.bool(true, "Vẽ cấu trúc sóng khung lớn (chồng lên)", group=gHtf)
+htfTf     = input.timeframe("240", "Khung thời gian tham chiếu", group=gHtf, tooltip="Để trống = tự động. Ví dụ: 60, 240, D, W.")
+depthHtf  = input.int(6, "Độ nhạy ZigZag khung lớn", minval=2, maxval=100, group=gHtf)
+colHtfUp  = input.color(color.new(#26a69a, 0), "Màu sóng đẩy HTF", group=gHtf)
+colHtfDn  = input.color(color.new(#ef5350, 0), "Màu sóng điều chỉnh HTF", group=gHtf)
+
+gDash     = "⑤ Bảng thông tin"
+showDash  = input.bool(true, "Hiển thị Dashboard", group=gDash)
+dashPos   = input.string("Trên phải", "Vị trí bảng", options=["Trên phải","Trên trái","Dưới phải","Dưới trái"], group=gDash)
+
+// ==========================================
+// 2. HÀM DÙNG CHUNG
+// ==========================================
+// Thêm 1 pivot vào mảng zigzag (giữ điểm cực trị nếu trùng chiều). x có thể là bar_index HOẶC time.
+// minMove = biên độ tối thiểu để ghi nhận một pivot ĐẢO CHIỀU (lọc nhiễu, tránh lẫn cấp độ sóng).
+f_addPivot(float[] zp, int[] zx, int[] zd, float price, int x, int dir, int cap, float minMove) =>
+    n = array.size(zp)
+    if n == 0
+        array.push(zp, price), array.push(zx, x), array.push(zd, dir)
+    else
+        lastDir = array.get(zd, n - 1)
+        lastPrice = array.get(zp, n - 1)
+        if lastDir == dir
+            // cùng chiều: chỉ cập nhật nếu cực trị hơn
+            if (dir == 1 and price > lastPrice) or (dir == -1 and price < lastPrice)
+                array.set(zp, n - 1, price)
+                array.set(zx, n - 1, x)
+        else
+            // đảo chiều: CHỈ ghi nhận nếu chân sóng đủ lớn; nếu không -> bỏ qua (gộp nhiễu)
+            if math.abs(price - lastPrice) >= minMove
+                array.push(zp, price), array.push(zx, x), array.push(zd, dir)
+    // giới hạn bộ nhớ
+    while array.size(zp) > cap
+        array.shift(zp), array.shift(zx), array.shift(zd)
+
+// Kiểm 3 quy tắc cho 1 điểm gốc ứng viên (impulse 5 sóng). Trả [hợp lệ, sóng3-dài-nhất].
+f_checkImpulse(float[] zp, int o, bool bull) =>
+    p0 = array.get(zp, o)
+    p1 = array.get(zp, o + 1)
+    p2 = array.get(zp, o + 2)
+    p3 = array.get(zp, o + 3)
+    p4 = array.get(zp, o + 4)
+    p5 = array.get(zp, o + 5)
+    len1 = math.abs(p1 - p0)
+    len3 = math.abs(p3 - p2)
+    len5 = math.abs(p5 - p4)
+    r1 = bull ? p2 > p0 : p2 < p0            // Sóng 2 không hồi quá gốc sóng 1
+    r2 = bull ? p4 > p1 : p4 < p1            // Sóng 4 không chồng vùng sóng 1
+    r3 = not (len3 < len1 and len3 < len5)   // Sóng 3 KHÔNG ngắn nhất
+    w3Longest = len3 >= len1 and len3 >= len5
+    [r1 and r2 and r3, w3Longest]
+
+// Chọn điểm gốc: BẮT BUỘC ưu tiên cách đếm THỎA 3 QUY TẮC (đặc biệt sóng 3 không ngắn nhất).
+// Trả [vị trí gốc, xu hướng tăng?, đếm hợp lệ?].
+f_pickOrigin(float[] zp, int[] zd, int maxP) =>
+    n = array.size(zp)
+    originPos = -1
+    trendBull = true
+    isValid = false
+    if n >= 3
+        lo = math.max(0, n - maxP)
+        hi = n - 6                                   // điểm gốc xa nhất còn đủ 5 chân sóng
+        // --- Ưu tiên 1: count hợp lệ + sóng 3 dài nhất (lý tưởng), chọn biên độ lớn nhất ---
+        best1 = -1
+        best1Bull = true
+        best1Span = -1.0
+        // --- Ưu tiên 2: count chỉ cần thỏa 3 quy tắc, chọn biên độ lớn nhất ---
+        best2 = -1
+        best2Bull = true
+        best2Span = -1.0
+        if hi >= lo
+            for o = lo to hi
+                bull = array.get(zd, o) == -1
+                [ok, w3Long] = f_checkImpulse(zp, o, bull)
+                if ok
+                    span = math.abs(array.get(zp, o + 1) - array.get(zp, o)) + math.abs(array.get(zp, o + 3) - array.get(zp, o + 2)) + math.abs(array.get(zp, o + 5) - array.get(zp, o + 4))
+                    if w3Long and span > best1Span
+                        best1 := o
+                        best1Bull := bull
+                        best1Span := span
+                    if span > best2Span
+                        best2 := o
+                        best2Bull := bull
+                        best2Span := span
+        if best1 >= 0
+            originPos := best1
+            trendBull := best1Bull
+            isValid   := true
+        else if best2 >= 0
+            originPos := best2
+            trendBull := best2Bull
+            isValid   := true
+        // --- Ưu tiên 3 (fallback): dùng cực trị, đánh dấu CHƯA hợp lệ ---
+        if not isValid
+            minPos = lo
+            maxPos = lo
+            minV = array.get(zp, lo)
+            maxV = array.get(zp, lo)
+            for k = lo to n - 1
+                v = array.get(zp, k)
+                if v < minV
+                    minV := v
+                    minPos := k
+                if v > maxV
+                    maxV := v
+                    maxPos := k
+            trendBull := maxPos > minPos
+            originPos := trendBull ? minPos : maxPos
+            if originPos >= n - 1
+                originPos := math.max(lo, n - 2)
+                trendBull := array.get(zp, n - 1) > array.get(zp, originPos)
+    [originPos, trendBull, isValid]
+
+// Nhãn sóng đẩy: 1-5, sau đó A-B-C (điều chỉnh nối tiếp)
+f_waveLabel(step) =>
+    step == 1 ? "1" : step == 2 ? "2" : step == 3 ? "3" : step == 4 ? "4" : step == 5 ? "5" : step == 6 ? "A" : step == 7 ? "B" : step == 8 ? "C" : ""
+
+// Nhãn cho cấu trúc ĐIỀU CHỈNH thuần: A-B-C (hoặc A-B-C-D-E cho tam giác)
+f_waveLabelC(step) =>
+    step == 1 ? "A" : step == 2 ? "B" : step == 3 ? "C" : step == 4 ? "D" : step == 5 ? "E" : ""
+
+// Kiểm tra 3 chân sóng có hợp mô hình ĐIỀU CHỈNH ABC không.
+// legsDone=2 (mới có A,B): chỉ cần B hồi A hợp lý. legsDone>=3: thêm điều kiện C không quá ngắn.
+f_checkABC(float[] zp, int o, int legsDone) =>
+    plausible = false
+    if legsDone >= 2 and o + 2 <= array.size(zp) - 1
+        p0 = array.get(zp, o)
+        p1 = array.get(zp, o + 1)
+        p2 = array.get(zp, o + 2)
+        legA = math.abs(p1 - p0)
+        legB = math.abs(p2 - p1)
+        okB = legA > 0 and (legB / legA) >= 0.2 and (legB / legA) <= 1.05   // B hồi A hợp lý
+        if legsDone == 2
+            plausible := okB
+        else if o + 3 <= array.size(zp) - 1
+            p3 = array.get(zp, o + 3)
+            legC = math.abs(p3 - p2)
+            okC = legA > 0 and (legC / legA) >= 0.5                          // C không quá ngắn so với A
+            plausible := okB and okC
+    plausible
+
+// Vẽ 1 đường mục tiêu Fibonacci (ngang) + nhãn
+f_pushFib(line[] fl, label[] flb, int xL, int xR, float price, string txt, color c) =>
+    l = line.new(xL, price, xR, price, color=c, width=1, style=line.style_dotted)
+    array.push(fl, l)
+    b = label.new(xR, price, txt, style=label.style_label_left, color=color.new(c, 20), textcolor=color.white, size=size.small)
+    array.push(flb, b)
+
+// Xóa toàn bộ đối tượng đã vẽ
+f_clearLines(line[] ls) =>
+    if array.size(ls) > 0
+        for i = 0 to array.size(ls) - 1
+            line.delete(array.get(ls, i))
+        array.clear(ls)
+f_clearLabels(label[] lbs) =>
+    if array.size(lbs) > 0
+        for i = 0 to array.size(lbs) - 1
+            label.delete(array.get(lbs, i))
+        array.clear(lbs)
+
+// Vẽ các chân sóng + nhãn số. xTime=true -> dùng xloc.bar_time (cho HTF).
+// mode: 0 = Impulse (1-5), 1 = Điều chỉnh (A-B-C), 2 = Chưa xác định (chỉ vẽ khung mờ, KHÔNG số sóng)
+f_drawWaves(float[] zp, int[] zx, int[] zd, int originPos, bool trendBull, line[] outL, label[] outLb, bool xTime, color cImp, color cCorr, color cLab, int mode) =>
+    n = array.size(zp)
+    if originPos >= 0 and originPos < n - 1
+        for k = originPos to n - 2
+            x1 = array.get(zx, k)
+            y1 = array.get(zp, k)
+            x2 = array.get(zx, k + 1)
+            y2 = array.get(zp, k + 1)
+            step = (k + 1) - originPos
+            lc = mode == 0 ? (step <= 5 ? cImp : cCorr) : mode == 1 ? cCorr : color.new(color.gray, 55)
+            lw = mode == 2 ? 1 : 2
+            lstyle = mode == 2 ? line.style_dashed : line.style_solid
+            ln = xTime ? line.new(x1, y1, x2, y2, xloc=xloc.bar_time, color=lc, width=lw, style=lstyle) : line.new(x1, y1, x2, y2, color=lc, width=lw, style=lstyle)
+            array.push(outL, ln)
+            // Chỉ gán nhãn khi là Impulse hợp lệ hoặc Điều chỉnh ABC. Chưa xác định -> không số sóng.
+            txt = mode == 0 ? f_waveLabel(step) : mode == 1 ? f_waveLabelC(step) : ""
+            if txt != ""
+                isHigh = array.get(zd, k + 1) == 1
+                stl = isHigh ? label.style_label_down : label.style_label_up
+                lb = xTime ? label.new(x2, y2, txt, xloc=xloc.bar_time, style=stl, color=cLab, textcolor=color.white, size=size.small) : label.new(x2, y2, txt, style=stl, color=cLab, textcolor=color.white, size=size.small)
+                array.push(outLb, lb)
+
+// Kiểm tra 3 quy tắc Elliott. Trả về [hợp lệ, chuỗi mô tả, số sóng đã có].
+f_validate(float[] zp, int originPos, bool trendBull) =>
+    n = array.size(zp)
+    valid = false
+    msg = "Chưa đủ 5 sóng"
+    waveCnt = originPos >= 0 ? (n - 1) - originPos : 0
+    if originPos >= 0 and (n - originPos) >= 6
+        p0 = array.get(zp, originPos)
+        p1 = array.get(zp, originPos + 1)
+        p2 = array.get(zp, originPos + 2)
+        p3 = array.get(zp, originPos + 3)
+        p4 = array.get(zp, originPos + 4)
+        p5 = array.get(zp, originPos + 5)
+        len1 = math.abs(p1 - p0)
+        len3 = math.abs(p3 - p2)
+        len5 = math.abs(p5 - p4)
+        // QUY TẮC 1 (sách): Sóng 2 không hồi quá 100% sóng 1 (không vượt điểm gốc sóng 1)
+        r1 = trendBull ? p2 > p0 : p2 < p0
+        // QUY TẮC 2 (sách): Sóng 4 không đi vào vùng giá của sóng 1
+        r2 = trendBull ? p4 > p1 : p4 < p1
+        // QUY TẮC 3 (sách): Sóng 3 KHÔNG BAO GIỜ là sóng NGẮN NHẤT trong 3 sóng đẩy (1-3-5).
+        //   -> Chỉ vi phạm khi sóng 3 ngắn hơn CẢ sóng 1 LẪN sóng 5. Thua 1 sóng thì vẫn hợp lệ.
+        r3 = not (len3 < len1 and len3 < len5)
+        valid := r1 and r2 and r3
+        // Guideline (không bắt buộc): sóng 3 là sóng dài nhất -> mô hình đẩy "đẹp", đáng tin hơn
+        w3Longest = len3 >= len1 and len3 >= len5
+        msg := "R1:" + (r1 ? "✔" : "✗") + " R2:" + (r2 ? "✔" : "✗") + " R3:" + (r3 ? "✔" : "✗") + (w3Longest ? " | W3 dài nhất ✦" : "")
+    [valid, msg, waveCnt]
+
+// ==========================================
+// 3. XÂY ZIGZAG KHUNG HIỆN TẠI
+// ==========================================
+var float[] zzP = array.new_float()
+var int[]   zzX = array.new_int()
+var int[]   zzD = array.new_int()
+
+float zzAtr = ta.atr(14)
+float ltfMinMove = zzAtr * minLegAtr        // biên độ tối thiểu 1 chân sóng (lọc nhiễu)
+
+ph = ta.pivothigh(depth, depth)
+pl = ta.pivotlow(depth, depth)
+if not na(ph)
+    f_addPivot(zzP, zzX, zzD, ph, bar_index - depth, 1, 50, ltfMinMove)
+if not na(pl)
+    f_addPivot(zzP, zzX, zzD, pl, bar_index - depth, -1, 50, ltfMinMove)
+
+// ==========================================
+// 4. XÂY ZIGZAG KHUNG LỚN (HTF) QUA request.security
+// ==========================================
+var float[] hzP = array.new_float()
+var int[]   hzX = array.new_int()
+var int[]   hzD = array.new_int()
+
+[hPh, hPl, hT, hAtr] = request.security(syminfo.tickerid, htfTf, [ta.pivothigh(depthHtf, depthHtf), ta.pivotlow(depthHtf, depthHtf), time[depthHtf], ta.atr(14)], lookahead=barmerge.lookahead_off)
+
+bool htfValid = timeframe.in_seconds(htfTf) > timeframe.in_seconds()
+float htfMinMove = (na(hAtr) ? 0.0 : hAtr) * minLegAtr
+
+var int lastHiT = na
+var int lastLoT = na
+if showHtf and htfValid
+    if not na(hPh) and (na(lastHiT) or hT != lastHiT)
+        f_addPivot(hzP, hzX, hzD, hPh, hT, 1, 40, htfMinMove)
+        lastHiT := hT
+    if not na(hPl) and (na(lastLoT) or hT != lastLoT)
+        f_addPivot(hzP, hzX, hzD, hPl, hT, -1, 40, htfMinMove)
+        lastLoT := hT
+
+// ==========================================
+// 5. BIẾN LƯU ĐỐI TƯỢNG ĐỒ HỌA
+// ==========================================
+var line[]  ltfLines  = array.new_line()
+var label[] ltfLabels = array.new_label()
+var line[]  zigLines  = array.new_line()
+var line[]  fibLines  = array.new_line()
+var label[] fibLabels = array.new_label()
+var line[]  htfLines  = array.new_line()
+var label[] htfLabels = array.new_label()
+
+// ==========================================
+// 6. VẼ (chỉ trên nến cuối để tránh trùng lặp)
+// ==========================================
+if barstate.islast
+    // --- Xóa vẽ cũ ---
+    f_clearLines(ltfLines)
+    f_clearLabels(ltfLabels)
+    f_clearLines(zigLines)
+    f_clearLines(fibLines)
+    f_clearLabels(fibLabels)
+    f_clearLines(htfLines)
+    f_clearLabels(htfLabels)
+
+    // --- ZigZag gốc khung hiện tại ---
+    nz = array.size(zzP)
+    if showZig and nz >= 2
+        for k = 0 to nz - 2
+            zl = line.new(array.get(zzX, k), array.get(zzP, k), array.get(zzX, k + 1), array.get(zzP, k + 1), color=colZig, width=1, style=line.style_solid)
+            array.push(zigLines, zl)
+
+    // --- Đếm sóng + PHÂN LOẠI CẤU TRÚC khung hiện tại ---
+    [oPos, tBull, oValid] = f_pickOrigin(zzP, zzD, maxPivots)
+    n = array.size(zzP)
+    legsDone = oPos >= 0 ? (n - 1) - oPos : 0
+
+    // Phân loại: 0=Impulse hợp lệ, 1=Điều chỉnh ABC, 2=Chưa xác định (KHÔNG gán 1-2-3-4-5)
+    lMode     = 2
+    corrMode  = false
+    structTxt = "Chưa đủ dữ liệu"
+    if oPos >= 0
+        if oValid
+            lMode     := 0
+            corrMode  := false
+            structTxt := "Sóng đẩy (Impulse)"
+        else
+            abcOk = f_checkABC(zzP, oPos, legsDone)
+            if abcOk
+                lMode     := 1
+                corrMode  := true
+                structTxt := legsDone >= 3 ? "Điều chỉnh ABC" : "ABC (đang chạy)"
+            else
+                lMode     := 2
+                corrMode  := false
+                structTxt := legsDone >= 5 ? "Chưa xác định (không phải impulse)" : "Đang hình thành"
+
+    if showWaves
+        f_drawWaves(zzP, zzX, zzD, oPos, tBull, ltfLines, ltfLabels, false, colImpulse, colCorr, colLabel, lMode)
+
+    [isValid, ruleMsg, wCnt] = f_validate(zzP, oPos, tBull)
+
+    // --- Fibonacci: ƯỚC LƯỢNG mục tiêu cho SÓNG ĐANG CHẠY DỞ ---
+    if showFib and oPos >= 0 and legsDone >= 1 and lMode != 2
+        dir   = tBull ? 1.0 : -1.0
+        xLast = array.get(zzX, n - 1)
+        xEnd  = bar_index + fibRight
+        p0    = array.get(zzP, oPos)
+        p1    = array.get(zzP, oPos + 1)
+        len1  = math.abs(p1 - p0)
+        if not corrMode
+            // ----- ĐANG TRONG SÓNG ĐẨY: chiếu sóng kế tiếp -----
+            if legsDone == 1
+                // đang chạy sóng 2 (vùng hồi của sóng 1)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p1 - dir * len1 * 0.5,   "W2 0.5",   colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p1 - dir * len1 * 0.618, "W2 0.618", colFib)
+            else if legsDone == 2
+                // đang chạy sóng 3 -> mục tiêu theo sóng 1
+                p2 = array.get(zzP, oPos + 2)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p2 + dir * len1 * 1.0,   "W3 1.0",   colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p2 + dir * len1 * 1.618, "W3 1.618", colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p2 + dir * len1 * 2.618, "W3 2.618", colFib)
+            else if legsDone == 3
+                // đang chạy sóng 4 (hồi của sóng 3)
+                p2   = array.get(zzP, oPos + 2)
+                p3   = array.get(zzP, oPos + 3)
+                len3 = math.abs(p3 - p2)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p3 - dir * len3 * 0.382, "W4 0.382", colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p3 - dir * len3 * 0.5,   "W4 0.5",   colFib)
+            else if legsDone == 4
+                // đang chạy sóng 5 -> mục tiêu theo sóng 1
+                p4 = array.get(zzP, oPos + 4)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p4 + dir * len1 * 0.618, "W5 0.618", colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p4 + dir * len1 * 1.0,   "W5 1.0",   colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p4 + dir * len1 * 1.618, "W5 1.618", colFib)
+            else if legsDone >= 5
+                // impulse xong -> chiếu vùng ĐIỀU CHỈNH (hồi của cả sóng đẩy)
+                pEnd    = array.get(zzP, oPos + 5)
+                netMove = math.abs(pEnd - p0)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, pEnd - dir * netMove * 0.382, "ĐC 0.382", colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, pEnd - dir * netMove * 0.5,   "ĐC 0.5",   colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, pEnd - dir * netMove * 0.618, "ĐC 0.618", colFib)
+        else
+            // ----- ĐANG TRONG SÓNG ĐIỀU CHỈNH ABC -----
+            dirA = (p1 > p0) ? 1.0 : -1.0     // hướng của sóng A
+            legA = len1
+            if legsDone == 1
+                // đang chạy sóng B (hồi của A)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p1 - dirA * legA * 0.382, "B 0.382", colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p1 - dirA * legA * 0.5,   "B 0.5",   colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p1 - dirA * legA * 0.618, "B 0.618", colFib)
+            else if legsDone == 2
+                // đang chạy sóng C -> mục tiêu theo sóng A (C hay bằng A)
+                p2 = array.get(zzP, oPos + 2)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p2 + dirA * legA * 0.618, "C 0.618A", colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p2 + dirA * legA * 1.0,   "C = A",    colFib)
+                f_pushFib(fibLines, fibLabels, xLast, xEnd, p2 + dirA * legA * 1.618, "C 1.618A", colFib)
+
+    // --- Vẽ cấu trúc sóng HTF (chồng lên, dùng bar_time) ---
+    htfTrendTxt = "—"
+    if showHtf and htfValid and array.size(hzP) >= 2
+        [hoPos, htBull, hoValid] = f_pickOrigin(hzP, hzD, maxPivots)
+        hLegs = hoPos >= 0 ? (array.size(hzP) - 1) - hoPos : 0
+        hMode = hoValid ? 0 : (f_checkABC(hzP, hoPos, hLegs) ? 1 : 2)
+        f_drawWaves(hzP, hzX, hzD, hoPos, htBull, htfLines, htfLabels, true, htBull ? colHtfUp : colHtfDn, htBull ? colHtfUp : colHtfDn, htBull ? colHtfUp : colHtfDn, hMode)
+        htfTrendTxt := htBull ? "TĂNG (Bull)" : "GIẢM (Bear)"
+
+    // --- Dashboard ---
+    if showDash
+        posSel = dashPos == "Trên phải" ? position.top_right : dashPos == "Trên trái" ? position.top_left : dashPos == "Dưới phải" ? position.bottom_right : position.bottom_left
+        var table dash = na
+        dash := table.new(posSel, 2, 7, border_width=1, frame_color=color.gray, frame_width=1, bgcolor=color.new(color.black, 20))
+        curTrend = tBull ? "TĂNG (Bull)" : "GIẢM (Bear)"
+        curCol   = tBull ? color.teal : color.maroon
+        structCol = structTxt == "Sóng đẩy (Impulse)" ? color.green : str.contains(structTxt, "ABC") ? color.blue : color.orange
+        table.cell(dash, 0, 0, "hieulag EW", text_color=color.white, bgcolor=color.new(color.blue, 0), text_size=size.normal)
+        table.cell(dash, 1, 0, syminfo.ticker + " " + timeframe.period, text_color=color.white, bgcolor=color.new(color.blue, 0), text_size=size.normal)
+        table.cell(dash, 0, 1, "Loại cấu trúc", text_color=color.white, text_size=size.small)
+        table.cell(dash, 1, 1, structTxt, text_color=color.white, bgcolor=color.new(structCol, 30), text_size=size.small)
+        table.cell(dash, 0, 2, "Xu hướng (TF này)", text_color=color.white, text_size=size.small)
+        table.cell(dash, 1, 2, curTrend, text_color=color.white, bgcolor=color.new(curCol, 30), text_size=size.small)
+        table.cell(dash, 0, 3, "Số sóng đã có", text_color=color.white, text_size=size.small)
+        table.cell(dash, 1, 3, str.tostring(wCnt), text_color=color.white, text_size=size.small)
+        table.cell(dash, 0, 4, "Quy tắc EW", text_color=color.white, text_size=size.small)
+        table.cell(dash, 1, 4, ruleMsg, text_color=color.white, bgcolor=color.new(isValid ? color.green : color.red, 40), text_size=size.small)
+        table.cell(dash, 0, 5, "Trạng thái đếm", text_color=color.white, text_size=size.small)
+        table.cell(dash, 1, 5, isValid ? "HỢP LỆ" : "CẦN CHỈNH TAY", text_color=color.white, bgcolor=color.new(isValid ? color.green : color.orange, 30), text_size=size.small)
+        table.cell(dash, 0, 6, "Xu hướng HTF " + htfTf, text_color=color.white, text_size=size.small)
+        table.cell(dash, 1, 6, htfTrendTxt, text_color=color.white, bgcolor=color.new(color.blue, 50), text_size=size.small)
+
+// ==========================================
+// 7. ALERT
+// ==========================================
+// Bắn cảnh báo khi vừa xuất hiện pivot mới (có thể là điểm kết thúc 1 chân sóng)
+alertcondition(not na(ph), title="Pivot Đỉnh mới", message="{{ticker}} vừa tạo Đỉnh ZigZag mới - kiểm tra cấu trúc sóng.")
+alertcondition(not na(pl), title="Pivot Đáy mới", message="{{ticker}} vừa tạo Đáy ZigZag mới - kiểm tra cấu trúc sóng.")

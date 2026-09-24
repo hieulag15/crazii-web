@@ -141,7 +141,7 @@ export function detectTrend(emaData: EMAData, index: number): TrendInfo {
 export function calculateKeyLevels(
   candles: Candle[],
   lookback = 500,
-  numLevels = 5
+  numLevels = 8
 ): KeyLevel[] {
   const slice = candles.slice(-lookback);
   if (slice.length < 50) return [];
@@ -470,8 +470,17 @@ export function generateSignals(
     if (i !== closedCandleIndex) continue;
     if (pattern.direction === 'neutral') continue;
 
-    // ===== CẢI THIỆN #4: Chỉ trade pattern mạnh (loại Inverted Hammer, Hammer — 100% SL theo backtest) =====
-    const STRONG: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker','bullish_harami','bearish_harami'];
+    // ===== CẢI THIỆN #4 V4: Thêm Hammer & Shooting Star vào STRONG list
+    // Hammer/Shooting Star tại Key Level + confluence vẫn có win rate chấp nhận được
+    // Inverted Hammer vẫn giữ exclude vì 100% SL theo backtest
+    const STRONG: CandlePatternType[] = [
+      'bullish_engulfing', 'bearish_engulfing',
+      'morning_star', 'evening_star',
+      'bullish_kicker', 'bearish_kicker',
+      'bullish_harami', 'bearish_harami',
+      'hammer',          // thêm mới — chỉ pass được khi wick chạm level + confluence
+      'shooting_star',   // thêm mới — tương tự hammer cho phía sell
+    ];
     if (!STRONG.includes(pattern.type)) continue;
 
     const c = candles[i];
@@ -483,15 +492,15 @@ export function generateSignals(
     const SUPER_STRONG: CandlePatternType[] = ['bullish_engulfing','bearish_engulfing','morning_star','evening_star','bullish_kicker','bearish_kicker'];
     const isCounterTrend = (pattern.direction === 'bullish' && trend.direction === 'downtrend') ||
                            (pattern.direction === 'bearish' && trend.direction === 'uptrend');
-    // Harami ngược trend → block hoàn toàn
+    // Harami/Hammer/Shooting Star ngược trend → block hoàn toàn
     // Engulfing/Kicker/Star ngược trend → cho phép (vì data cho thấy vẫn win)
     if (isCounterTrend && !SUPER_STRONG.includes(pattern.type)) continue;
 
-    // ===== CẢI THIỆN #3: Volume filter (backtest: thua hầu hết khi vol thấp) =====
-    // Engulfing/Kicker/Star = pattern mạnh → chỉ cần vol >= 0.8x avg
-    // Harami = pattern yếu hơn → cần vol >= 1.2x avg để đảm bảo xác nhận
+    // ===== CẢI THIỆN #3 V4: Volume filter nới lỏng để bắt thêm tín hiệu =====
+    // Engulfing/Kicker/Star/Hammer/ShootingStar → vol >= 0.7x avg (từ 0.8)
+    // Harami → vol >= 1.0x avg (từ 1.2) — vẫn yêu cầu xác nhận nhưng không quá chặt
     const WEAK_PATTERNS: CandlePatternType[] = ['bullish_harami', 'bearish_harami'];
-    const volThreshold = WEAK_PATTERNS.includes(pattern.type) ? 1.2 : 0.8;
+    const volThreshold = WEAK_PATTERNS.includes(pattern.type) ? 1.0 : 0.7;
     if (vol && vol.volumeRatio < volThreshold) continue;
 
     // Bước 1: Xác định side dựa trên pattern direction
@@ -499,11 +508,11 @@ export function generateSignals(
     let side: 'buy' | 'sell' | null = null;
 
     if (pattern.direction === 'bullish') {
-      // Tìm hỗ trợ gần — nến wick phải "chạm" vào vùng
-      nearLevel = findNearestLevel(price, keyLevels, 'support', 1.0);
+      // Tìm hỗ trợ gần — nới proximity lên 1.5% để bắt nhiều tín hiệu hơn
+      nearLevel = findNearestLevel(price, keyLevels, 'support', 1.5);
       if (!nearLevel) {
         // Kiểm tra low of candle chạm level (wick touch)
-        nearLevel = findNearestLevel(c.low, keyLevels, 'support', 0.5);
+        nearLevel = findNearestLevel(c.low, keyLevels, 'support', 0.8);
       }
       if (!nearLevel) {
         // EMA như hỗ trợ động
@@ -520,10 +529,10 @@ export function generateSignals(
       }
       if (nearLevel) side = 'buy';
     } else {
-      // Tìm kháng cự gần
-      nearLevel = findNearestLevel(price, keyLevels, 'resistance', 1.0);
+      // Tìm kháng cự gần — nới proximity lên 1.5%
+      nearLevel = findNearestLevel(price, keyLevels, 'resistance', 1.5);
       if (!nearLevel) {
-        nearLevel = findNearestLevel(c.high, keyLevels, 'resistance', 0.5);
+        nearLevel = findNearestLevel(c.high, keyLevels, 'resistance', 0.8);
       }
       if (!nearLevel) {
         const ema34Dist = Math.abs(price - emaData.ema34[i]) / price * 100;
@@ -542,15 +551,17 @@ export function generateSignals(
 
     if (!side || !nearLevel) continue;
 
-    // ===== NÂNG CẤP V2: Lessons from 41-trade backtest (WR 60.7%) =====
+    // ===== NÂNG CẤP V4: Thêm Hammer/Shooting Star, giữ các rule chất lượng =====
     // Pattern thua: Harami sideway (100% SL), mọi pattern khi wick KHÔNG chạm level
     // Pattern thắng: Engulfing tại Key Level trùng EMA (vùng hợp lưu)
 
-    // RULE 1: Block HOÀN TOÀN Harami trong sideway (data: 100% SL)
-    if (WEAK_PATTERNS.includes(pattern.type) && trend.direction === 'sideway') continue;
+    // RULE 1: Block HOÀN TOÀN Harami + Hammer + Shooting Star trong sideway
+    // (1-nến / 2-nến yếu → quá nhiều noise khi không có trend)
+    const SINGLE_CANDLE_PATTERNS: CandlePatternType[] = ['bullish_harami', 'bearish_harami', 'hammer', 'shooting_star'];
+    if (SINGLE_CANDLE_PATTERNS.includes(pattern.type) && trend.direction === 'sideway') continue;
 
-    // RULE 2: Engulfing/Kicker trong sideway chỉ cho phép nếu gần EMA mạnh
-    if (trend.direction === 'sideway' && !WEAK_PATTERNS.includes(pattern.type)) {
+    // RULE 2: Engulfing/Kicker/Star trong sideway chỉ cho phép nếu gần EMA mạnh
+    if (trend.direction === 'sideway' && !SINGLE_CANDLE_PATTERNS.includes(pattern.type)) {
       const nearEma34 = Math.abs(price - emaData.ema34[i]) / price * 100 < 0.5;
       const nearEma89 = Math.abs(price - emaData.ema89[i]) / price * 100 < 0.8;
       const nearEma200 = Math.abs(price - emaData.ema200[i]) / price * 100 < 1.0;
@@ -558,13 +569,11 @@ export function generateSignals(
       if (!nearEma34 && !nearEma89 && !nearEma200) continue;
     }
 
-    // RULE 3: Wick PHẢI chạm level — tolerance nghiêm ngặt hơn
+    // RULE 3: Wick PHẢI chạm level — tolerance được nới để bắt nhiều tín hiệu hơn
     // Data: 71% lệnh thua do wick không chạm level
-    // Key Level tĩnh: tolerance 0.2% (chặt)
-    // V3 (backtest 60 trades): EMA tolerance từ 0.5% → 0.3% (giảm signal giả)
-    // Data: 70% lệnh thua có "wick không chạm level" — EMA quá rộng làm engine match sai
+    // V4: Tăng tolerance để không bỏ sót signal khi wick gần chạm level
     const isEmaLevel = nearLevel.strength <= 3; // EMA-based level có strength thấp hơn
-    const touchTolerance = nearLevel.price * (isEmaLevel ? 0.003 : 0.002);
+    const touchTolerance = nearLevel.price * (isEmaLevel ? 0.005 : 0.004); // nới từ 0.3%/0.2% → 0.5%/0.4%
     const wickTouched = side === 'buy'
       ? c.low <= nearLevel.price + touchTolerance
       : c.high >= nearLevel.price - touchTolerance;
@@ -582,6 +591,9 @@ export function generateSignals(
     }
     // Nếu dùng EMA làm level thay vì Key Level tĩnh → yêu cầu confluence bắt buộc
     if (isEmaLevel && !hasConfluence) continue;
+
+    // Hammer/Shooting Star (1-nến) → bắt buộc phải có confluence để đủ độ tin cậy
+    if ((pattern.type === 'hammer' || pattern.type === 'shooting_star') && !hasConfluence) continue;
 
     // Nguyên tắc bất biến: không Sell gần hỗ trợ, không Buy gần kháng cự
     if (side === 'sell') {
@@ -623,6 +635,9 @@ export function generateSignals(
     // +10 Pattern cực mạnh (data: Engulfing/Kicker win rate cao nhất)
     if (SUPER_STRONG.includes(pattern.type)) confidence += 10;
 
+    // +5 Pattern trung bình (Hammer/Shooting Star — cần confluence bắt buộc nên vẫn có giá trị)
+    if (pattern.type === 'hammer' || pattern.type === 'shooting_star') confidence += 5;
+
     // +8 Vùng hợp lưu (Key Level + EMA — data: THẮNG hầu hết khi có confluence)
     if (hasConfluence) confidence += 8;
 
@@ -635,8 +650,8 @@ export function generateSignals(
 
     confidence = Math.min(100, Math.max(0, confidence));
 
-    // ===== CẢI THIỆN #5: Threshold 75% (V2 — chặt hơn để giảm SL) =====
-    if (confidence < 75) continue;
+    // ===== CẢI THIỆN #5: Threshold 65% (V4 — cân bằng giữa số lượng và chất lượng) =====
+    if (confidence < 65) continue;
 
     // ===== CẢI THIỆN #2: SL = swing low/high 5 nến + buffer % (phù hợp mọi coin) =====
     const slLookback = 5;

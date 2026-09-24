@@ -46,9 +46,9 @@ const DEBOUNCE_BARS = 3;
 const OPPOSITE_COOLDOWN_BARS = 6;
 // Sideways detection params
 const SW_LOOKBACK = 20;       // số nến để phát hiện sideway
-const SW_ATR_RATIO = 0.6;    // ATR hiện tại / ATR dài hạn < ratio này = sideway
-const SW_OP_CROSS_MAX = 4;   // giá cross OP > N lần trong lookback = sideway
-const SW_PENALTY = 30;       // trừ bao nhiêu điểm confidence khi sideway
+const SW_ATR_RATIO = 0.75;   // ATR hiện tại / ATR dài hạn < ratio này = sideway (tăng từ 0.6 → khó trigger hơn)
+const SW_OP_CROSS_MAX = 6;   // giá cross OP > N lần trong lookback = sideway (tăng từ 4 → ít false positive hơn)
+const SW_PENALTY = 20;       // trừ bao nhiêu điểm confidence khi sideway (giảm từ 30 → signal sideway vẫn có cơ hội pass)
 
 /**
  * Phát hiện thị trường đang sideways tại 1 vị trí.
