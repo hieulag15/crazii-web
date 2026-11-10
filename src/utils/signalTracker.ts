@@ -8,6 +8,14 @@
 
 import type { KeyLevelSignal, EMAData, VolumeAnalysis } from './keyLevelEngine';
 import type { Candle } from '../types/index';
+import { calcFees, DEFAULT_EST_HOLDING_HOURS, type FeeConfig } from './fees';
+
+// Re-export fee model để các import cũ (từ signalTracker) vẫn hoạt động
+export {
+  calcFees, calcNetRR, countFundingIntervals,
+  DEFAULT_FEE_CONFIG, DEFAULT_EST_HOLDING_HOURS, FUNDING_INTERVAL_HOURS,
+  type FeeConfig,
+} from './fees';
 
 // ============================================================
 // TYPES
@@ -45,9 +53,18 @@ export interface TrackedSignal {
   leverage?: number;        // đòn bẩy (1 = spot, 2 = 2x, ...)
   riskUSD?: number;         // số USDT chấp nhận thua tối đa cho lệnh này
   positionSize?: number;    // kích thước vị thế (USDT, tính từ riskUSD / distance%)
-  pnlTP?: number;           // PnL USDT nếu TP (dương)
-  pnlSL?: number;           // PnL USDT nếu SL (âm, = -riskUSD)
-  pnlCurrent?: number;      // PnL USDT hiện tại (realtime, cập nhật bởi UI)
+  pnlTP?: number;           // PnL USDT nếu TP (GỘP, chưa trừ phí)
+  pnlSL?: number;           // PnL USDT nếu SL (âm, = -riskUSD, chưa trừ phí)
+  pnlCurrent?: number;      // PnL USDT thực tế (NET - đã trừ phí) khi lệnh đóng
+  // ────────────────────────────────────────────────────────
+
+  // ── Phí giao dịch (v3 - BingX perpetual) ────────────────
+  feeOpen?: number;         // phí mở lệnh (USDT, = notional × feePct)
+  feeClose?: number;        // phí đóng lệnh (USDT)
+  fundingFee?: number;      // phí funding ước tính (USDT)
+  totalFees?: number;       // tổng phí thực tế khi đóng (USDT)
+  pnlTPNet?: number;        // PnL NET nếu TP (đã trừ phí mở+đóng+funding)
+  pnlSLNet?: number;        // PnL NET nếu SL (đã trừ phí → lỗ nhiều hơn riskUSD)
   // ────────────────────────────────────────────────────────
 
   marketContext: {
@@ -190,31 +207,43 @@ export function checkSignalOutcome(
 
   const updates: Partial<TrackedSignal> = {};
 
+  const applyClose = (outcome: 'tp' | 'sl', closePrice: number, rAchieved: number) => {
+    const closedAt = Date.now();
+    updates.outcome = outcome;
+    updates.closePrice = closePrice;
+    updates.closedAt = closedAt;
+    updates.rAchieved = rAchieved;
+
+    // PnL NET đã trừ phí (mở + đóng + funding theo thời gian giữ lệnh thực)
+    const net = computeClosedNetPnL(signal, outcome, closedAt);
+    if (net) {
+      updates.pnlCurrent = net.pnlNet;
+      updates.feeOpen = net.feeOpen;
+      updates.feeClose = net.feeClose;
+      updates.fundingFee = net.fundingFee;
+      updates.totalFees = net.totalFees;
+    } else if (outcome === 'sl' && signal.riskUSD) {
+      updates.pnlCurrent = -signal.riskUSD;
+    } else if (outcome === 'tp' && signal.pnlTP) {
+      updates.pnlCurrent = signal.pnlTP;
+    }
+  };
+
   if (signal.side === 'buy') {
     if (currentHigh > signal.maxFavorable) updates.maxFavorable = currentHigh;
     if (currentLow < signal.maxAdverse)    updates.maxAdverse = currentLow;
     if (currentLow <= signal.sl) {
-      updates.outcome = 'sl'; updates.closePrice = signal.sl;
-      updates.closedAt = Date.now(); updates.rAchieved = -1;
-      if (signal.riskUSD) updates.pnlCurrent = -signal.riskUSD;
+      applyClose('sl', signal.sl, -1);
     } else if (currentHigh >= signal.tp) {
-      updates.outcome = 'tp'; updates.closePrice = signal.tp;
-      updates.closedAt = Date.now();
-      updates.rAchieved = Math.abs(signal.tp - signal.entry) / Math.abs(signal.entry - signal.sl);
-      if (signal.pnlTP) updates.pnlCurrent = signal.pnlTP;
+      applyClose('tp', signal.tp, Math.abs(signal.tp - signal.entry) / Math.abs(signal.entry - signal.sl));
     }
   } else {
     if (currentLow < signal.maxFavorable)  updates.maxFavorable = currentLow;
     if (currentHigh > signal.maxAdverse)   updates.maxAdverse = currentHigh;
     if (currentHigh >= signal.sl) {
-      updates.outcome = 'sl'; updates.closePrice = signal.sl;
-      updates.closedAt = Date.now(); updates.rAchieved = -1;
-      if (signal.riskUSD) updates.pnlCurrent = -signal.riskUSD;
+      applyClose('sl', signal.sl, -1);
     } else if (currentLow <= signal.tp) {
-      updates.outcome = 'tp'; updates.closePrice = signal.tp;
-      updates.closedAt = Date.now();
-      updates.rAchieved = Math.abs(signal.entry - signal.tp) / Math.abs(signal.sl - signal.entry);
-      if (signal.pnlTP) updates.pnlCurrent = signal.pnlTP;
+      applyClose('tp', signal.tp, Math.abs(signal.entry - signal.tp) / Math.abs(signal.sl - signal.entry));
     }
   }
 
@@ -282,11 +311,12 @@ export function calculateStats(signals?: TrackedSignal[]): TrackingStats {
 
 export function exportAsCSV(): string {
   const all = readCache();
-  const headers = 'Date,Symbol,TF,Side,Pattern,Trend,Confidence,Entry,SL,TP,Outcome,R_Achieved,VolConfirm,Leverage,RiskUSD,PnL_USD,Notes,Tags';
+  const headers = 'Date,Symbol,TF,Side,Pattern,Trend,Confidence,Entry,SL,TP,Outcome,R_Achieved,VolConfirm,Leverage,RiskUSD,PositionSize,Fees_USD,PnL_Net_USD,Notes,Tags';
   const rows = all.map(s => [
     new Date(s.createdAt).toISOString(), s.symbol, s.timeframe, s.side, s.pattern, s.trend,
     s.confidence, s.entry, s.sl, s.tp, s.outcome, s.rAchieved ?? '',
-    s.volumeConfirm, s.leverage ?? 1, s.riskUSD ?? '', s.pnlCurrent ?? '',
+    s.volumeConfirm, s.leverage ?? 1, s.riskUSD ?? '', s.positionSize ?? '',
+    s.totalFees ?? '', s.pnlCurrent ?? '',
     `"${(s.notes || '').replace(/"/g, '""')}"`, (s.tags || []).join(';'),
   ].join(','));
   return [headers, ...rows].join('\n');
@@ -316,6 +346,39 @@ export function exportForTraining(): string {
     },
     notes: s.notes, tags: s.tags, reason: s.reason,
   })).join('\n');
+}
+
+// ============================================================
+// NET PnL — áp dụng phí (fee model ở ./fees)
+// ============================================================
+
+/**
+ * Tính PnL NET thực tế (đã trừ phí) khi lệnh đã đóng.
+ * Dùng thời gian giữ lệnh thực (closedAt - createdAt) để tính funding chính xác.
+ * Trả về { pnlNet, fees } hoặc null nếu thiếu dữ liệu positionSize.
+ */
+export function computeClosedNetPnL(
+  sig: Pick<TrackedSignal, 'positionSize' | 'entry' | 'tp' | 'sl' | 'riskUSD' | 'pnlTP' | 'createdAt'>,
+  outcome: 'tp' | 'sl',
+  closedAtMs: number,
+  feeConfig?: Partial<FeeConfig>
+): { pnlNet: number; feeOpen: number; feeClose: number; fundingFee: number; totalFees: number } | null {
+  if (!sig.positionSize || sig.positionSize <= 0) return null;
+
+  const holdingHours = closedAtMs && sig.createdAt ? (closedAtMs - sig.createdAt) / 3_600_000 : 0;
+  const exit = outcome === 'tp' ? sig.tp : sig.sl;
+  const fees = calcFees({ positionSize: sig.positionSize, entry: sig.entry, exit, holdingHours, cfg: feeConfig });
+
+  const gross = outcome === 'tp' ? (sig.pnlTP ?? 0) : -(sig.riskUSD ?? 0);
+  const pnlNet = gross - fees.total;
+
+  return {
+    pnlNet: parseFloat(pnlNet.toFixed(2)),
+    feeOpen: parseFloat(fees.feeOpen.toFixed(4)),
+    feeClose: parseFloat(fees.feeClose.toFixed(4)),
+    fundingFee: parseFloat(fees.fundingFee.toFixed(4)),
+    totalFees: parseFloat(fees.total.toFixed(4)),
+  };
 }
 
 // ============================================================
@@ -361,14 +424,21 @@ export function calcPnL(params: {
   riskPct: number;         // % ví (e.g. 2 = 2%)
   maxLoss: number;         // USDT tối đa
   leverage?: number;       // đòn bẩy (default 1)
+  feeConfig?: Partial<FeeConfig>;   // override phí (default = BingX taker)
+  estHoldingHours?: number;         // thời gian giữ lệnh ước tính (cho funding projection)
 }): {
   riskUSD: number;
   positionSize: number;
-  pnlTP: number;
-  pnlSL: number;
+  pnlTP: number;           // GỘP (chưa trừ phí)
+  pnlSL: number;           // GỘP (= -riskUSD)
   rr: number;
+  // ── Phí & PnL net (v3) ──
+  feesTP: number;          // tổng phí khi TP
+  feesSL: number;          // tổng phí khi SL
+  pnlTPNet: number;        // PnL thực tế nếu TP (đã trừ phí)
+  pnlSLNet: number;        // PnL thực tế nếu SL (đã trừ phí, âm hơn riskUSD)
+  rrNet: number;           // R:R thực sau phí
 } {
-  const lev = Math.max(1, params.leverage ?? 1);
   const riskUSD = Math.min(
     params.walletBalance * params.riskPct / 100,
     params.maxLoss
@@ -385,7 +455,23 @@ export function calcPnL(params: {
   const pnlSL = -riskUSD; // lỗ tối đa = riskUSD (leverage không thay đổi risk amount)
   const rr = slDistPct > 0 ? tpDistPct / slDistPct : 0;
 
-  return { riskUSD, positionSize, pnlTP, pnlSL, rr };
+  // ── Phí giao dịch (BingX perpetual) ──
+  const holding = params.estHoldingHours ?? DEFAULT_EST_HOLDING_HOURS;
+  const feesTP = calcFees({ positionSize, entry: params.entry, exit: params.tp, holdingHours: holding, cfg: params.feeConfig }).total;
+  const feesSL = calcFees({ positionSize, entry: params.entry, exit: params.sl, holdingHours: holding, cfg: params.feeConfig }).total;
+  const pnlTPNet = pnlTP - feesTP;
+  const pnlSLNet = pnlSL - feesSL;
+  // R:R net = lợi nhuận thực / số lỗ thực
+  const rrNet = pnlSLNet !== 0 ? Math.abs(pnlTPNet / pnlSLNet) : 0;
+
+  return {
+    riskUSD, positionSize, pnlTP, pnlSL, rr,
+    feesTP: parseFloat(feesTP.toFixed(4)),
+    feesSL: parseFloat(feesSL.toFixed(4)),
+    pnlTPNet: parseFloat(pnlTPNet.toFixed(2)),
+    pnlSLNet: parseFloat(pnlSLNet.toFixed(2)),
+    rrNet: parseFloat(rrNet.toFixed(2)),
+  };
 }
 
 // ============================================================
@@ -428,6 +514,8 @@ export function createTrackedSignal(
   let positionSize: number | undefined;
   let pnlTP: number | undefined;
   let pnlSL: number | undefined;
+  let pnlTPNet: number | undefined;
+  let pnlSLNet: number | undefined;
 
   if (walletSettings && walletSettings.walletBalance > 0) {
     leverage = Math.max(1, walletSettings.leverage ?? 1);
@@ -442,6 +530,8 @@ export function createTrackedSignal(
     positionSize = parseFloat(calc.positionSize.toFixed(2));
     pnlTP        = parseFloat(calc.pnlTP.toFixed(2));
     pnlSL        = parseFloat(calc.pnlSL.toFixed(2));
+    pnlTPNet     = calc.pnlTPNet;
+    pnlSLNet     = calc.pnlSLNet;
   }
 
   return {
@@ -456,7 +546,7 @@ export function createTrackedSignal(
     outcome: 'pending', closedAt: null, closePrice: null, rAchieved: null,
     maxFavorable: sig.entry, maxAdverse: sig.entry,
     notes: '', tags: [],
-    leverage, riskUSD, positionSize, pnlTP, pnlSL, pnlCurrent: undefined,
+    leverage, riskUSD, positionSize, pnlTP, pnlSL, pnlTPNet, pnlSLNet, pnlCurrent: undefined,
     marketContext: {
       ema34:  emaData.ema34[lastIdx]  ?? 0,
       ema89:  emaData.ema89[lastIdx]  ?? 0,

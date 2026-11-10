@@ -20,7 +20,7 @@ import {
 import {
   getAllSignals, loadAllSignals, addSignal, updateSignal, deleteSignal,
   calculateStats, checkSignalOutcome, exportAsCSV, exportForTraining,
-  createTrackedSignal, calcPnL, recommendLeverage,
+  createTrackedSignal, calcPnL, recommendLeverage, computeClosedNetPnL, calcFees,
   type TrackedSignal, type TrackingStats, type SignalOutcome,
 } from '../utils/signalTracker';
 import type { Candle } from '../types/index';
@@ -512,13 +512,13 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
             const progressToSL = currentMove < 0 ? Math.min(100, Math.max(0, (Math.abs(currentMove) / totalToSL) * 100)) : 0;
             next[sig.id] = { price, pnlPct, progressToTP, progressToSL };
 
-            // Auto-detect TP/SL hit
+            // Auto-detect TP/SL hit (PnL net đã trừ phí)
             if (sig.side === 'buy') {
-              if (price >= sig.tp) { updateSignal(sig.id, { outcome: 'tp', closedAt: Date.now(), closePrice: sig.tp, rAchieved: Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl) }); refreshJournal(); }
-              else if (price <= sig.sl) { updateSignal(sig.id, { outcome: 'sl', closedAt: Date.now(), closePrice: sig.sl, rAchieved: -1 }); refreshJournal(); }
+              if (price >= sig.tp) { updateSignal(sig.id, buildCloseUpdates(sig, 'tp', sig.tp)); refreshJournal(); }
+              else if (price <= sig.sl) { updateSignal(sig.id, buildCloseUpdates(sig, 'sl', sig.sl)); refreshJournal(); }
             } else {
-              if (price <= sig.tp) { updateSignal(sig.id, { outcome: 'tp', closedAt: Date.now(), closePrice: sig.tp, rAchieved: Math.abs(sig.entry - sig.tp) / Math.abs(sig.sl - sig.entry) }); refreshJournal(); }
-              else if (price >= sig.sl) { updateSignal(sig.id, { outcome: 'sl', closedAt: Date.now(), closePrice: sig.sl, rAchieved: -1 }); refreshJournal(); }
+              if (price <= sig.tp) { updateSignal(sig.id, buildCloseUpdates(sig, 'tp', sig.tp)); refreshJournal(); }
+              else if (price >= sig.sl) { updateSignal(sig.id, buildCloseUpdates(sig, 'sl', sig.sl)); refreshJournal(); }
             }
           }
           return next;
@@ -774,19 +774,36 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
         leverage: dynLev,
       });
 
-      updateSignal(sig.id, {
+      const upd: Partial<TrackedSignal> = {
         leverage:     dynLev,
         riskUSD:      parseFloat(pnlCalc.riskUSD.toFixed(2)),
         positionSize: parseFloat(pnlCalc.positionSize.toFixed(2)),
         pnlTP:        parseFloat(pnlCalc.pnlTP.toFixed(2)),
         pnlSL:        parseFloat(pnlCalc.pnlSL.toFixed(2)),
-      });
+        pnlTPNet:     pnlCalc.pnlTPNet,
+        pnlSLNet:     pnlCalc.pnlSLNet,
+      };
+      // Lệnh đã đóng → tính lại PnL NET thực tế (đã trừ phí) theo thời gian giữ lệnh thực
+      if ((sig.outcome === 'tp' || sig.outcome === 'sl') && sig.closedAt) {
+        const net = computeClosedNetPnL(
+          { ...sig, positionSize: upd.positionSize, riskUSD: upd.riskUSD, pnlTP: upd.pnlTP },
+          sig.outcome, sig.closedAt,
+        );
+        if (net) {
+          upd.pnlCurrent = net.pnlNet;
+          upd.feeOpen = net.feeOpen;
+          upd.feeClose = net.feeClose;
+          upd.fundingFee = net.fundingFee;
+          upd.totalFees = net.totalFees;
+        }
+      }
+      updateSignal(sig.id, upd);
       updatedCount++;
     }
 
     await refreshJournal();
     setRecalcing(false);
-    alert(`✅ Đã bổ sung dữ liệu cho ${updatedCount} signal (dynamic leverage theo slDist%)`);
+    alert(`✅ Đã bổ sung dữ liệu + phí cho ${updatedCount} signal (net sau phí BingX)`);
   }, [refreshJournal, getWalletSettings]);
 
   // Save signal to journal
@@ -864,14 +881,35 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
     refreshJournal();
   };
 
+  // Build payload khi đóng lệnh TP/SL — kèm PnL NET đã trừ phí (mở + đóng + funding)
+  const buildCloseUpdates = useCallback((sig: TrackedSignal, outcome: 'tp' | 'sl', closePrice: number): Partial<TrackedSignal> => {
+    const closedAt = Date.now();
+    const rAchieved = outcome === 'tp'
+      ? Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl)
+      : -1;
+    const base: Partial<TrackedSignal> = { outcome, closedAt, closePrice, rAchieved };
+    const net = computeClosedNetPnL(sig, outcome, closedAt);
+    if (net) {
+      base.pnlCurrent = net.pnlNet;
+      base.feeOpen = net.feeOpen;
+      base.feeClose = net.feeClose;
+      base.fundingFee = net.fundingFee;
+      base.totalFees = net.totalFees;
+    }
+    return base;
+  }, []);
+
   // Manual outcome override
   const handleSetOutcome = (id: string, outcome: SignalOutcome) => {
     const sig = trackedSignals.find(s => s.id === id);
     if (!sig) return;
+    if (outcome === 'tp' || outcome === 'sl') {
+      updateSignal(id, buildCloseUpdates(sig, outcome, outcome === 'tp' ? sig.tp : sig.sl));
+      refreshJournal();
+      return;
+    }
     let rAchieved = sig.rAchieved;
-    if (outcome === 'tp') rAchieved = Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl);
-    else if (outcome === 'sl') rAchieved = -1;
-    else if (outcome === 'breakeven') rAchieved = 0;
+    if (outcome === 'breakeven') rAchieved = 0;
     updateSignal(id, { outcome, closedAt: Date.now(), rAchieved });
     refreshJournal();
   };
@@ -886,7 +924,21 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       : (sig.entry - closeP) / Math.abs(sig.sl - sig.entry);
     const outcome: SignalOutcome = rAchieved > 0 ? 'tp' : rAchieved === 0 ? 'breakeven' : 'manual_close';
     const reason = manualCloseReason ? `\n📝 Đóng tay: ${manualCloseReason}` : '';
-    updateSignal(id, { outcome, closedAt: Date.now(), closePrice: closeP, rAchieved, notes: (sig.notes || '') + reason });
+    const closedAt = Date.now();
+    const upd: Partial<TrackedSignal> = { outcome, closedAt, closePrice: closeP, rAchieved, notes: (sig.notes || '') + reason };
+    // PnL NET đã trừ phí (giá đóng tùy chỉnh)
+    if (sig.positionSize && sig.positionSize > 0) {
+      const grossPct = sig.side === 'buy' ? (closeP - sig.entry) / sig.entry : (sig.entry - closeP) / sig.entry;
+      const gross = sig.positionSize * grossPct;
+      const holdingHours = (closedAt - sig.createdAt) / 3_600_000;
+      const fees = calcFees({ positionSize: sig.positionSize, entry: sig.entry, exit: closeP, holdingHours });
+      upd.pnlCurrent = parseFloat((gross - fees.total).toFixed(2));
+      upd.feeOpen = parseFloat(fees.feeOpen.toFixed(4));
+      upd.feeClose = parseFloat(fees.feeClose.toFixed(4));
+      upd.fundingFee = parseFloat(fees.fundingFee.toFixed(4));
+      upd.totalFees = parseFloat(fees.total.toFixed(4));
+    }
+    updateSignal(id, upd);
     setManualCloseId(null); setManualClosePrice(''); setManualCloseReason('');
     refreshJournal();
   };
@@ -1021,6 +1073,8 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
       positionSize: parseFloat(pnlCalc.positionSize.toFixed(2)),
       pnlTP: parseFloat(pnlCalc.pnlTP.toFixed(2)),
       pnlSL: parseFloat(pnlCalc.pnlSL.toFixed(2)),
+      pnlTPNet: pnlCalc.pnlTPNet,
+      pnlSLNet: pnlCalc.pnlSLNet,
       marketContext: {
         ema34: 0, ema89: 0, ema200: 0, volumeRatio: 0, prevCandles: [],
       },
@@ -1365,9 +1419,11 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                                 <strong style={{ color: '#fbbf24' }}>{dynLev}x</strong>
                               </span>
                               <span style={{ color: '#334155' }}>|</span>
-                              <span style={{ color: '#ef4444' }}>SL <strong>-${Math.abs(pnl.pnlSL).toFixed(2)}</strong></span>
+                              <span style={{ color: '#ef4444' }}>SL <strong>-${Math.abs(pnl.pnlSLNet).toFixed(2)}</strong></span>
                               <span style={{ color: '#334155' }}>|</span>
-                              <span style={{ color: '#22c55e' }}>TP <strong>+${pnl.pnlTP.toFixed(2)}</strong></span>
+                              <span style={{ color: '#22c55e' }}>TP <strong>+${pnl.pnlTPNet.toFixed(2)}</strong></span>
+                              <span style={{ color: '#334155' }}>|</span>
+                              <span style={{ color: '#f59e0b' }} title="Tổng phí ước tính khi TP">💸 ${pnl.feesTP.toFixed(2)}</span>
                             </div>
                           </div>
                         );
@@ -1487,9 +1543,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                                   <strong style={{ color: '#fbbf24' }}>{dynLev}x</strong>
                                 </span>
                                 <span style={{ color: '#475569', margin: '0 4px' }}>|</span>
-                                <span style={{ color: '#ef4444' }}>-${Math.abs(pnl.pnlSL).toFixed(2)}</span>
+                                <span style={{ color: '#ef4444' }}>-${Math.abs(pnl.pnlSLNet).toFixed(2)}</span>
                                 <span style={{ color: '#475569', margin: '0 3px' }}>/</span>
-                                <span style={{ color: '#22c55e' }}>+${pnl.pnlTP.toFixed(2)}</span>
+                                <span style={{ color: '#22c55e' }}>+${pnl.pnlTPNet.toFixed(2)}</span>
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                                 <button
@@ -1583,7 +1639,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                     <div style={S.signalRow}><span>📈 Vol:</span> <strong>{sig.volumeConfirm ? '✅ Xác nhận' : '⚠️ Chưa'}</strong></div>
                     <div style={S.signalRow}><span>📐 Pattern:</span> <strong>{sig.pattern.name}</strong></div>
                   </div>
-                  {/* PnL Calculator */}
+                  {/* PnL Calculator — net sau phí BingX */}
                   {(() => {
                     const margin = pnl.positionSize / dynLeverage;
                     return (
@@ -1597,10 +1653,17 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                         </span>
                         <span style={{ color: '#334155', fontSize: '0.75rem' }}>|</span>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          SL <strong style={{ color: '#ef4444' }}>${pnl.pnlSL.toFixed(2)}</strong>
+                          TP <strong style={{ color: '#22c55e' }}>+${pnl.pnlTPNet.toFixed(2)}</strong>
                         </span>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          TP <strong style={{ color: '#22c55e' }}>+${pnl.pnlTP.toFixed(2)}</strong>
+                          SL <strong style={{ color: '#ef4444' }}>${pnl.pnlSLNet.toFixed(2)}</strong>
+                        </span>
+                        <span style={{ color: '#334155', fontSize: '0.75rem' }}>|</span>
+                        <span style={{ fontSize: '0.72rem', color: '#f59e0b' }} title="Tổng phí khi TP (mở + đóng + funding + slippage)">
+                          💸 phí ~<strong>${pnl.feesTP.toFixed(2)}</strong>
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: '#64748b' }} title="R:R thực sau khi trừ phí">
+                          R:R net <strong style={{ color: pnl.rrNet >= 1.5 ? '#22c55e' : '#f59e0b' }}>{pnl.rrNet.toFixed(2)}</strong>
                         </span>
                       </div>
                     );
@@ -1753,7 +1816,13 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
                           )}
                           {(sig as any).pnlCurrent != null && (
                             <span style={{ color: (sig as any).pnlCurrent >= 0 ? '#22c55e' : '#ef4444', fontWeight: 'bold', fontSize: '0.85rem', background: (sig as any).pnlCurrent >= 0 ? '#22c55e15' : '#ef444415', padding: '1px 8px', borderRadius: 6, border: `1px solid ${(sig as any).pnlCurrent >= 0 ? '#22c55e30' : '#ef444430'}` }}>
-                              💰 {(sig as any).pnlCurrent >= 0 ? '+' : ''}${(sig as any).pnlCurrent.toFixed(2)}
+                              💰 {(sig as any).pnlCurrent >= 0 ? '+' : ''}${(sig as any).pnlCurrent.toFixed(2)} <span style={{ fontWeight: 400, color: '#64748b', fontSize: '0.72rem' }}>net</span>
+                            </span>
+                          )}
+                          {(sig as any).totalFees != null && (sig as any).totalFees > 0 && (
+                            <span title={`Phí mở: $${((sig as any).feeOpen ?? 0).toFixed(3)} | Phí đóng: $${((sig as any).feeClose ?? 0).toFixed(3)} | Funding: $${((sig as any).fundingFee ?? 0).toFixed(3)}`}
+                              style={{ color: '#f59e0b', fontSize: '0.75rem', background: '#f59e0b12', padding: '1px 7px', borderRadius: 6, border: '1px solid #f59e0b30' }}>
+                              💸 -${(sig as any).totalFees.toFixed(2)}
                             </span>
                           )}
                         </div>
@@ -2014,9 +2083,9 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
 
                         {/* Quick actions */}
                         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                          <button onClick={() => { updateSignal(sig.id, { outcome: 'tp', closedAt: Date.now(), closePrice: sig.tp, rAchieved: Math.abs(sig.tp - sig.entry) / Math.abs(sig.entry - sig.sl) }); refreshJournal(); }}
+                          <button onClick={() => { updateSignal(sig.id, buildCloseUpdates(sig, 'tp', sig.tp)); refreshJournal(); }}
                             style={{ ...S.outcomeBtn, background: '#22c55e20', color: '#22c55e', borderColor: '#22c55e40', fontSize: '0.78rem' }}>✅ TP</button>
-                          <button onClick={() => { updateSignal(sig.id, { outcome: 'sl', closedAt: Date.now(), closePrice: sig.sl, rAchieved: -1 }); refreshJournal(); }}
+                          <button onClick={() => { updateSignal(sig.id, buildCloseUpdates(sig, 'sl', sig.sl)); refreshJournal(); }}
                             style={{ ...S.outcomeBtn, background: '#ef444420', color: '#ef4444', borderColor: '#ef444440', fontSize: '0.78rem' }}>❌ SL</button>
                           <button onClick={() => setActiveTab('journal')}
                             style={{ ...S.outcomeBtn, background: '#a855f720', color: '#a855f7', borderColor: '#a855f740', fontSize: '0.78rem' }}>📓 Chi tiết</button>

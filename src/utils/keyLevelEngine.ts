@@ -5,6 +5,10 @@
  */
 
 import type { Candle } from '../types/index.js';
+import { calcNetRR } from './fees.js';
+
+// Ngưỡng R:R NET tối thiểu (sau phí BingX). Chỉ nhận lệnh còn đủ lời sau phí.
+const MIN_NET_RR = 1.5;
 
 // ============================================================
 // TYPES
@@ -685,38 +689,41 @@ export function generateSignals(
       })
       .sort((a, b) => side === 'buy' ? a.price - b.price : b.price - a.price); // gần nhất trước
 
-    const nearestKeyLevel = candidateLevels[0]?.price ?? null;
-
     // EMA phía đúng hướng, cũng lọc tối đa 5%
     const candidateEmas = [emaData.ema34[i], emaData.ema89[i], emaData.ema200[i]].filter(e => {
       if (side === 'buy') return e > price * 1.003 && e - price >= minRiskForRR && e - price <= maxTpDist;
       return e < price * 0.997 && price - e >= minRiskForRR && price - e <= maxTpDist;
     }).sort((a, b) => side === 'buy' ? a - b : b - a);
-    const nearestEma = candidateEmas[0] ?? null;
 
-    let tp: number;
-    if (nearestKeyLevel) {
-      tp = nearestKeyLevel;
-    } else if (nearestEma) {
-      tp = nearestEma;
-    } else {
-      // Fallback: 2x risk, nhưng cap ở 5%
+    // ===== CẢI TIẾN #1: Chọn TP theo R:R NET (sau phí BingX) ≥ MIN_NET_RR =====
+    // Engine cũ chọn mức gần nhất đạt rr GỘP 1.5 → sau phí thường tụt < 1.5.
+    // Giờ ưu tiên mức gần nhất mà NET rr vẫn ≥ 1.5 (ưu tiên key level, rồi EMA).
+    const tpCandidates: number[] = [
+      ...candidateLevels.map(l => l.price),
+      ...candidateEmas,
+    ];
+    let tp: number | null = null;
+    for (const cand of tpCandidates) {
+      if (calcNetRR({ entry: price, sl, tp: cand, side }) >= MIN_NET_RR) { tp = cand; break; }
+    }
+    // Fallback: 2x risk (cap 5%) nếu không mức key level/EMA nào đạt net rr
+    if (tp == null) {
       const risk = Math.abs(price - sl);
       const raw = side === 'buy' ? price + risk * 2 : price - risk * 2;
-      if (side === 'buy') tp = Math.min(raw, price * 1.05);
-      else                tp = Math.max(raw, price * 0.95);
+      const capped = side === 'buy' ? Math.min(raw, price * 1.05) : Math.max(raw, price * 0.95);
+      if (calcNetRR({ entry: price, sl, tp: capped, side }) >= MIN_NET_RR) tp = capped;
     }
+    // Không có TP nào đạt R:R net trong phạm vi ≤5% → bỏ lệnh (sau phí không đủ lời)
+    if (tp == null) continue;
 
-    const rr = Math.abs(tp - price) / Math.abs(price - sl);
-
-    // Chỉ lấy RR >= 1.5
-    if (rr < 1.5) continue;
+    const rr = Math.abs(tp - price) / Math.abs(price - sl);   // rr gộp (để hiển thị)
+    const rrNet = calcNetRR({ entry: price, sl, tp, side });  // rr sau phí
 
     const reason = [
       `${pattern.name} tại ${side === 'buy' ? 'hỗ trợ' : 'kháng cự'} ${nearLevel.price.toFixed(2)}`,
       `Xu hướng: ${trend.direction === 'uptrend' ? '⬆️ Tăng' : trend.direction === 'downtrend' ? '⬇️ Giảm' : '↔️ Sideway'}`,
       volumeConfirm ? '✅ Volume xác nhận' : '⚠️ Volume thấp',
-      `R:R = ${rr.toFixed(1)}`,
+      `R:R = ${rr.toFixed(1)} (net ${rrNet.toFixed(2)})`,
       wickTouched ? '🎯 Wick chạm level' : '',
     ].filter(Boolean).join(' | ');
 
