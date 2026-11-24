@@ -1,5 +1,5 @@
 // ============================================================
-// CRAZII Auth Context - Global authentication state
+// Key Level Auth Context - Global authentication state
 // ============================================================
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';

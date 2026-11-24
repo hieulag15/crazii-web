@@ -1,8 +1,8 @@
 // ============================================================
-// CRAZII API Client - Authentication & Settings
+// Key Level API Client - Authentication & Settings
 // ============================================================
 
-const TOKEN_KEY = 'crazii_token';
+const TOKEN_KEY = 'keylevel_token';
 const BASE_URL = '/api';
 
 // ===== Token Management =====
@@ -66,17 +66,6 @@ export interface UserSettings {
   symbol: string;
   timeframe: string;
   minConfidence: number;
-  showOP: boolean;
-  showMLP: boolean;
-  showKTR: boolean;
-  showPivot: boolean;
-  showDiamond: boolean;
-  showEMA200: boolean;
-  showFVG: boolean;
-  showOB: boolean;
-  telegramEnabled: boolean;
-  telegramChatId?: string;
-  telegramMinConfidence: number;
   // Wallet & Position Sizing
   walletBalance: number;
   riskPerTrade: number;

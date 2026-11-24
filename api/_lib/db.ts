@@ -8,7 +8,7 @@ import { MongoClient, Db } from 'mongodb';
 let cachedClient: MongoClient | null = null;
 let cachedDb: Db | null = null;
 
-const DB_NAME = 'crazii';
+const DB_NAME = 'keylevel';
 
 export async function getDB(): Promise<Db> {
   if (cachedDb) return cachedDb;
@@ -58,18 +58,6 @@ export interface UserSettings {
   symbol: string;
   timeframe: string;
   minConfidence: number;
-  showOP: boolean;
-  showMLP: boolean;
-  showKTR: boolean;
-  showPivot: boolean;
-  showDiamond: boolean;
-  showEMA200: boolean;
-  showFVG: boolean;
-  showOB: boolean;
-  // Telegram
-  telegramEnabled: boolean;
-  telegramChatId?: string;
-  telegramMinConfidence: number; // ngưỡng % để auto-gửi TG (mặc định 80)
   // Wallet & Position Sizing
   walletBalance: number;     // tổng số dư đầu tư (USDT)
   riskPerTrade: number;      // % risk mỗi lệnh (mặc định 2 = 2%)
@@ -77,19 +65,9 @@ export interface UserSettings {
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
-  symbol: 'XAUUSDT',
+  symbol: 'BTCUSDT',
   timeframe: '5m',
   minConfidence: 55,
-  showOP: true,
-  showMLP: true,
-  showKTR: true,
-  showPivot: true,
-  showDiamond: true,
-  showEMA200: true,
-  showFVG: false,
-  showOB: false,
-  telegramEnabled: false,
-  telegramMinConfidence: 80,
   walletBalance: 300,
   riskPerTrade: 2,
   maxLossPerTrade: 10,

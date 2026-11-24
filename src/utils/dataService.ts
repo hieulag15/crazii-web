@@ -2,7 +2,6 @@
  * Data Service - Lấy dữ liệu real-time từ Binance
  * WebSocket cho live updates
  * CHÚ Ý: File này dành cho hệ thống KEY LEVEL (crypto)
- * Hệ thống CRAZII dùng file riêng: craziiDataService.ts
  */
 
 import type { Candle } from '../types/index.js';

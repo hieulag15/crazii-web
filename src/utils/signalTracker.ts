@@ -103,7 +103,7 @@ export interface TrackingStats {
 // CONSTANTS
 // ============================================================
 
-const CACHE_KEY = 'crazii_kl_signals_cache';
+const CACHE_KEY = 'kl_signals_cache';
 
 // ============================================================
 // CACHE HELPERS

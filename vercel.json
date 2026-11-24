@@ -9,21 +9,9 @@
       "includeFiles": "src/**",
       "maxDuration": 60
     },
-    "api/check-signals.ts": {
-      "includeFiles": "src/**",
-      "maxDuration": 60
-    },
-    "api/crazii-signals.ts": {
-      "includeFiles": "src/**",
-      "maxDuration": 60
-    },
     "api/narrative-scan.ts": {
       "includeFiles": "src/**",
       "maxDuration": 120
-    },
-    "api/crazii-positions.ts": {
-      "includeFiles": "src/**",
-      "maxDuration": 30
     },
     "api/**/*.ts": {
       "includeFiles": "src/**",

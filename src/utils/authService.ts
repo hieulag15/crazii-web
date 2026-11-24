@@ -2,8 +2,8 @@
  * Auth Service - quản lý đăng nhập/đăng ký/token phía client
  */
 
-const TOKEN_KEY = 'crazii_token';
-const USER_KEY = 'crazii_user';
+const TOKEN_KEY = 'keylevel_token';
+const USER_KEY = 'keylevel_user';
 
 export interface AuthUser {
   id: string;
@@ -16,17 +16,6 @@ export interface UserSettings {
   symbol: string;
   timeframe: string;
   minConfidence: number;
-  showOP: boolean;
-  showMLP: boolean;
-  showKTR: boolean;
-  showPivot: boolean;
-  showDiamond: boolean;
-  showEMA200: boolean;
-  showFVG: boolean;
-  showOB: boolean;
-  telegramEnabled: boolean;
-  telegramChatId?: string;
-  telegramMinConfidence: number;
   // Wallet & Position Sizing
   walletBalance: number;
   riskPerTrade: number;

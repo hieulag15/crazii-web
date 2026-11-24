@@ -1,5 +1,5 @@
 // ============================================================
-// CRAZII Login / Register Page
+// Key Level Login / Register Page
 // ============================================================
 
 import { useState } from 'react';
@@ -40,7 +40,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div style={styles.logo}>
           <span style={styles.logoIcon}>◆</span>
-          <span style={styles.logoText}>CRAZII</span>
+          <span style={styles.logoText}>KEY LEVEL</span>
         </div>
         <p style={styles.subtitle}>Hệ thống giao dịch thông minh</p>
 
@@ -69,7 +69,7 @@ export default function LoginPage() {
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="VD: Trader Crazii"
+                placeholder="VD: Trader"
                 style={styles.input}
               />
             </div>

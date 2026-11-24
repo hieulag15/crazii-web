@@ -240,7 +240,7 @@ function MainChart({ candles, result, symbol, toggles }: { candles: Candle[]; re
 // ============================================================
 interface ScanResult { symbol: string; label: string; trend: TrendDirection; signals: KeyLevelSignal[]; lastPrice: number; loading: boolean; }
 
-export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, onOpenCrazii, onLogout }: { onBack?: () => void; onOpenAcademy?: () => void; onOpenSettings?: () => void; onOpenCrazii?: () => void; onLogout?: () => void }) {
+export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, onLogout }: { onBack?: () => void; onOpenAcademy?: () => void; onOpenSettings?: () => void; onLogout?: () => void }) {
   // Restore saved settings from localStorage
   const savedSettings = (() => {
     try {
@@ -363,7 +363,7 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
   const [savedSignalIds, setSavedSignalIds] = useState<Set<string>>(() => {
     // Load existing signal keys từ cache để tránh duplicate khi page reload
     try {
-      const cached = JSON.parse(localStorage.getItem('crazii_kl_signals_cache') || '[]');
+      const cached = JSON.parse(localStorage.getItem('kl_signals_cache') || '[]');
       const keys = new Set<string>();
       for (const s of cached) {
         // Key format dùng trong scanner: symbol_time_side
@@ -1112,7 +1112,6 @@ export default function KeyLevelPage({ onBack, onOpenAcademy, onOpenSettings, on
           {result && trendBadge(result.trend.direction)}
           <span style={S.price}>{coinLabel}: {candles.length > 0 ? fmtPrice(candles[candles.length - 1].close) : '---'}</span>
           {onOpenAcademy && <button onClick={onOpenAcademy} style={S.navBtn}>📖 Học viện</button>}
-          {onOpenCrazii && <button onClick={onOpenCrazii} style={{ ...S.navBtn, color: '#fbbf24', borderColor: '#fbbf2440' }}>🏆 CRAZII</button>}
           {onOpenSettings && <button onClick={onOpenSettings} style={S.navBtn}>⚙️ Cài đặt</button>}
           {onLogout && <button onClick={onLogout} style={{ ...S.navBtn, color: '#ef4444', borderColor: '#ef444440' }}>Đăng xuất</button>}
         </div>

@@ -14,14 +14,12 @@ const ROUTES: Record<string, string> = {
   '/api/auth/register': './api/auth/register.ts',
   '/api/auth/login': './api/auth/login.ts',
   '/api/auth/me': './api/auth/me.ts',
-  '/api/check-signals': './api/check-signals.ts',
   '/api/kl-signals': './api/kl-signals.ts',
   '/api/scan': './api/scan.ts',
   '/api/ai-analyze': './api/ai-analyze.ts',
   '/api/auto-scan': './api/auto-scan.ts',
   '/api/watchlist': './api/watchlist.ts',
   '/api/test-telegram': './api/test-telegram.ts',
-  '/api/notify': './api/notify.ts',
 };
 
 async function loadHandler(path: string): Promise<((req: any, res: any) => Promise<void>) | null> {
@@ -106,7 +104,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n🚀 CRAZII Dev API: http://localhost:${PORT}\n`);
+  console.log(`\n🚀 Key Level Dev API: http://localhost:${PORT}\n`);
   console.log('   Routes:');
   Object.keys(ROUTES).forEach((r) => console.log(`   ${r}`));
   console.log('');

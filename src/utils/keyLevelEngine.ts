@@ -1,7 +1,6 @@
 /**
  * Key Level Trading Engine
  * Hệ thống giao dịch dựa trên Key Level + Candlestick Pattern + EMA + Volume
- * Hoàn toàn độc lập với CRAZII engine
  */
 
 import type { Candle } from '../types/index.js';

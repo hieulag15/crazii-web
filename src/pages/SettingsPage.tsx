@@ -1,5 +1,5 @@
 // ============================================================
-// CRAZII Settings Page - User preferences & Telegram config
+// Key Level Settings Page - User preferences
 // ============================================================
 
 import { useState, useEffect } from 'react';
@@ -15,17 +15,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   symbol: 'BTCUSDT',
   timeframe: '5m',
   minConfidence: 55,
-  showOP: true,
-  showMLP: true,
-  showKTR: true,
-  showPivot: true,
-  showDiamond: true,
-  showEMA200: true,
-  showFVG: false,
-  showOB: false,
-  telegramEnabled: false,
-  telegramChatId: '',
-  telegramMinConfidence: 80,
   walletBalance: 300,
   riskPerTrade: 2,
   maxLossPerTrade: 10,
@@ -127,66 +116,6 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
           </div>
         </div>
 
-        {/* Indicator toggles */}
-        <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>📈 Chỉ báo</h3>
-          <div style={styles.toggleGrid}>
-            <ToggleItem label="OP" active={form.showOP} color="#ff8c00" onToggle={() => toggle('showOP')} />
-            <ToggleItem label="MLP" active={form.showMLP} color="#9b59b6" onToggle={() => toggle('showMLP')} />
-            <ToggleItem label="KTR" active={form.showKTR} color="#22c55e" onToggle={() => toggle('showKTR')} />
-            <ToggleItem label="Pivot" active={form.showPivot} color="#ff00ff" onToggle={() => toggle('showPivot')} />
-            <ToggleItem label="Diamond 💎" active={form.showDiamond} color="#00ffff" onToggle={() => toggle('showDiamond')} />
-            <ToggleItem label="EMA200" active={form.showEMA200} color="#f59e0b" onToggle={() => toggle('showEMA200')} />
-            <ToggleItem label="FVG" active={form.showFVG} color="#22c55e" onToggle={() => toggle('showFVG')} />
-            <ToggleItem label="OB" active={form.showOB} color="#00e5ff" onToggle={() => toggle('showOB')} />
-          </div>
-        </div>
-
-        {/* Telegram settings */}
-        <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>📱 Telegram</h3>
-
-          <div style={styles.row}>
-            <label style={styles.label}>Bật thông báo Telegram:</label>
-            <button
-              onClick={() => toggle('telegramEnabled')}
-              style={{
-                ...styles.toggleBtn,
-                background: form.telegramEnabled ? '#229ed9' : '#1a2744',
-                borderColor: form.telegramEnabled ? '#229ed9' : '#2a3f5f',
-              }}
-            >
-              {form.telegramEnabled ? 'BẬT' : 'TẮT'}
-            </button>
-          </div>
-
-          {form.telegramEnabled && (
-            <>
-              <div style={styles.row}>
-                <label style={styles.label}>Chat ID:</label>
-                <input
-                  type="text"
-                  value={form.telegramChatId || ''}
-                  onChange={(e) => setForm((f) => ({ ...f, telegramChatId: e.target.value }))}
-                  placeholder="VD: 123456789"
-                  style={styles.input}
-                />
-              </div>
-              <div style={styles.row}>
-                <label style={styles.label}>
-                  Chỉ gửi khi confidence ≥ {form.telegramMinConfidence}%
-                </label>
-                <input
-                  type="range"
-                  min={50} max={100} step={5}
-                  value={form.telegramMinConfidence}
-                  onChange={(e) => setForm((f) => ({ ...f, telegramMinConfidence: Number(e.target.value) }))}
-                  style={styles.slider}
-                />
-              </div>
-            </>
-          )}
-        </div>
 
         {/* Wallet & Position Sizing */}
         <div style={styles.section}>
