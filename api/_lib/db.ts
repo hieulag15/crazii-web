@@ -8,7 +8,7 @@ import { MongoClient, Db } from 'mongodb';
 let cachedClient: MongoClient | null = null;
 let cachedDb: Db | null = null;
 
-const DB_NAME = 'keylevel';
+const DB_NAME = 'crazii';
 
 export async function getDB(): Promise<Db> {
   if (cachedDb) return cachedDb;

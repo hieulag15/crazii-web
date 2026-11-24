@@ -18,7 +18,10 @@ import { hashPassword, verifyPassword, signToken, getUserFromRequest } from './_
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Lấy action từ path: /api/auth/login → "login"
   const urlPath = req.url?.split('?')[0] ?? '';
-  const action = urlPath.split('/').pop() ?? '';
+  const queryAction = req.query.action;
+  const action = typeof queryAction === 'string'
+    ? queryAction
+    : urlPath.split('/').pop() ?? '';
 
   // ── POST /api/auth?action=login ────────────────────────────────────────────
   if (action === 'login') {

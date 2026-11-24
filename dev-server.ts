@@ -11,9 +11,9 @@ const PORT = 3001;
 
 // Route map → handler file (dynamic import)
 const ROUTES: Record<string, string> = {
-  '/api/auth/register': './api/auth/register.ts',
-  '/api/auth/login': './api/auth/login.ts',
-  '/api/auth/me': './api/auth/me.ts',
+  '/api/auth/register': './api/auth.ts',
+  '/api/auth/login': './api/auth.ts',
+  '/api/auth/me': './api/auth.ts',
   '/api/kl-signals': './api/kl-signals.ts',
   '/api/scan': './api/scan.ts',
   '/api/ai-analyze': './api/ai-analyze.ts',
